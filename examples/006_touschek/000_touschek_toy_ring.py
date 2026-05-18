@@ -70,15 +70,18 @@ line.configure_bend_model(core='full', edge=None)
 tab = line.get_table()
 tab_bends_quads = tab.rows[(tab.element_type == 'Bend') | (tab.element_type == 'Quadrupole')]
 
+placements = []
 for ii, nn in enumerate(tab_bends_quads.name):
     tscatter_name = f'TScatter_{ii}'
     env.elements[tscatter_name] = xf.TouschekScattering()
-    line.insert(tscatter_name, at=0.0, from_=nn)
+    placements.append(env.place(tscatter_name, at=0.0, from_=nn))
 
 # The last TouschekScattering element has to be placed at the end of the line
 tscatter_name = f'TScatter_{ii+1}'
 env.elements[tscatter_name] = xf.TouschekScattering()
-line.insert(tscatter_name, at=tab.s[-1])
+placements.append(env.place(tscatter_name, at=tab.s[-1]))
+
+line.insert(placements)
 
 ######################################################
 # Install apertures
