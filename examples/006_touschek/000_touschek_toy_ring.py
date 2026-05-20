@@ -72,12 +72,12 @@ tab_bends_quads = tab.rows[(tab.element_type == 'Bend') | (tab.element_type == '
 
 placements = []
 for ii, nn in enumerate(tab_bends_quads.name):
-    tscatter_name = f'TScatter_{ii}'
+    tscatter_name = f'TScatter.{ii}'
     env.elements[tscatter_name] = xf.TouschekScattering()
     placements.append(env.place(tscatter_name, at=0.0, from_=nn))
 
 # The last TouschekScattering element has to be placed at the end of the line
-tscatter_name = f'TScatter_{ii+1}'
+tscatter_name = f'TScatter.{ii+1}'
 env.elements[tscatter_name] = xf.TouschekScattering()
 placements.append(env.place(tscatter_name, at=tab.s[-1]))
 
@@ -87,17 +87,12 @@ line.insert(placements)
 # Install apertures
 ######################################################
 tab = line.get_table()
-needs_aperture = np.unique(tab.element_type)[
-    ~np.isin(np.unique(tab.element_type), ["", "Drift", "Marker"])
-]
+needs_aperture = tab.rows.match_not(element_type='Drift.*|Marker|').name
 
 aper_size = 0.040 # m
 
 placements = []
-for nn, ee in zip(tab.name, tab.element_type):
-    if ee not in needs_aperture:
-        continue
-
+for nn in needs_aperture:
     env.new(
         f'{nn}_aper_entry', xt.LimitRect,
         min_x=-aper_size, max_x=aper_size,
