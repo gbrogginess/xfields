@@ -95,7 +95,7 @@ def _build_toy_ring_with_touschek_and_apertures(
 
 def _compute_fast_lma_at_touschek_centers(line, *, nemitt_x, nemitt_y):
     # Fast-ish settings for tests
-    return line.momentum_aperture(
+    return line.local_momentum_acceptance(
         include_type_pattern="TouschekScattering",
         nemitt_x=nemitt_x,
         nemitt_y=nemitt_y,
@@ -130,8 +130,8 @@ def test_touschek_manager_initialise_configures_elements():
     # Keep runtime reasonable
     tm = xf.TouschekManager(
         line,
-        momentum_aperture=df_ma,
-        momentum_aperture_scale=0.85,
+        local_momentum_acceptance=df_ma,
+        local_momentum_acceptance_scale=0.85,
         nemitt_x=nemitt_x,
         nemitt_y=nemitt_y,
         sigma_z=sigma_z,
@@ -192,8 +192,8 @@ def test_touschek_scattering_scatter_returns_particles():
 
     tm = xf.TouschekManager(
         line,
-        momentum_aperture=df_ma,
-        momentum_aperture_scale=0.85,
+        local_momentum_acceptance=df_ma,
+        local_momentum_acceptance_scale=0.85,
         nemitt_x=nemitt_x,
         nemitt_y=nemitt_y,
         sigma_z=sigma_z,
@@ -239,9 +239,9 @@ def test_touschek_scattering_scatter_returns_particles():
     assert el.total_mc_rate >= 0
 
 
-def test_touschek_manager_validates_momentum_aperture_columns():
+def test_touschek_manager_validates_local_momentum_acceptance_columns():
     """
-    TouschekManager should reject malformed momentum_aperture objects.
+    TouschekManager should reject malformed local_momentum_acceptance objects.
     """
     _, line = _build_toy_ring_with_touschek_and_apertures()
 
@@ -252,7 +252,7 @@ def test_touschek_manager_validates_momentum_aperture_columns():
     with pytest.raises(ValueError, match=r"missing columns"):
         xf.TouschekManager(
             line,
-            momentum_aperture=bad,
+            local_momentum_acceptance=bad,
             sigma_z=4e-3,
             sigma_delta=1e-3,
             bunch_population=1.0,

@@ -115,10 +115,10 @@ for nn, ee in zip(tab.name, tab.element_type):
 line.insert(placements)
 
 ######################################################
-# Evaluate momentum aperture profile
+# Evaluate local momentum acceptance profile
 ######################################################
 # Evaluate local momentum aperture at the touschek scattering centers
-momentum_aperture = line.momentum_aperture(
+lma = line.get_local_momentum_acceptance(
     # twiss=tw,
     include_type_pattern="TouschekScattering",
     nemitt_x=nemitt_x,
@@ -129,16 +129,13 @@ momentum_aperture = line.momentum_aperture(
     delta_step_size=1e-4,
     n_turns=1000,
     method="4d"
-)
-
-df_momentum_aperture = momentum_aperture.to_pandas()
 
 ######################################################
 # Plot
 ######################################################
-plt.plot(momentum_aperture.s, momentum_aperture.deltan*100, c='r')
-plt.plot(momentum_aperture.s, momentum_aperture.deltap*100, c='r')
-plt.title('Toy ring: local momentum aperture profile')
+plt.plot(lma.s, lma.deltan*100, c='r')
+plt.plot(lma.s, lma.deltap*100, c='r')
+plt.title('Toy ring: local momentum acceptance profile')
 plt.xlabel('s [m]')
 plt.ylabel(r'$\delta$ [%]')
 plt.grid()
@@ -148,14 +145,14 @@ plt.show()
 # Touschek simulation
 ######################################################
 # Parameters
-momentum_aperture_scale = 0.85 # scaling factor for momentum aperture
+local_momentum_acceptance_scale = 0.85 # scaling factor for local momentum acceptance
 n_simulated = 5e6 # number of simulated scattering events with delta > delta_min
 nturns = 1000 # number of turns to simulate
 
 touschek_manager = xf.TouschekManager(
     line,
-    momentum_aperture=df_momentum_aperture,
-    momentum_aperture_scale=momentum_aperture_scale,
+    local_momentum_acceptance=lma,
+    local_momentum_acceptance_scale=local_momentum_acceptance_scale,
     nemitt_x=nemitt_x,
     nemitt_y=nemitt_y,
     sigma_z=sigma_z,

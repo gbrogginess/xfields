@@ -74,7 +74,7 @@ class TouschekCalculator:
         """
         p0c = self.manager.particle_ref.p0c[0]
         bunch_population = self.manager.bunch_population
-        momentum_aperture = self.manager.momentum_aperture
+        local_momentum_acceptance = self.manager.local_momentum_acceptance
         gemitt_x = self.manager.gemitt_x
         gemitt_y = self.manager.gemitt_y
         twiss = self.twiss
@@ -97,8 +97,8 @@ class TouschekCalculator:
         except:
             s = self.manager.line.get_s_position(element)
 
-        deltaN = np.interp(s, momentum_aperture.s, momentum_aperture.deltan)
-        deltaP = np.interp(s, momentum_aperture.s, momentum_aperture.deltap)
+        deltaN = np.interp(s, local_momentum_acceptance.s, local_momentum_acceptance.deltan)
+        deltaP = np.interp(s, local_momentum_acceptance.s, local_momentum_acceptance.deltap)
 
         sigmab_x = np.sqrt(gemitt_x * betx) # Horizontal betatron beam size
         sigma_x = np.sqrt(gemitt_x * betx + dx**2 * sigma_delta**2) # Horizontal beam size
@@ -216,11 +216,11 @@ class TouschekCalculator:
 
 
 class TouschekManager:
-    def __init__(self, line=None, twiss=None, momentum_aperture=None,
+    def __init__(self, line=None, twiss=None, local_momentum_acceptance=None,
                  nemitt_x=None, nemitt_y=None,
                  sigma_z=None, sigma_delta=None, bunch_population=None,
                  n_simulated=None, gemitt_x=None, gemitt_y=None,
-                 momentum_aperture_scale=0.85, ignored_portion=0.01,
+                 local_momentum_acceptance_scale=0.85, ignored_portion=0.01,
                  seed=1997, nx=3, ny=3, nz=3, **kwargs):
 
         # Input validation
@@ -228,8 +228,8 @@ class TouschekManager:
             raise ValueError("`line` is required.")
         if not hasattr(line, "particle_ref"):
             raise ValueError("`line` must have a `particle_ref`.")
-        if momentum_aperture is None:
-            raise ValueError("`momentum_aperture` is required.")
+        if local_momentum_acceptance is None:
+            raise ValueError("`local_momentum_acceptance` is required.")
         if sigma_z is None:
             raise ValueError("`sigma_z` is required.")
         if sigma_delta is None:
@@ -241,16 +241,16 @@ class TouschekManager:
 
         # Momentum aperture validation
         required_cols = {"s", "deltan", "deltap"}
-        if not hasattr(momentum_aperture, "columns") or not hasattr(momentum_aperture, "__getitem__"):
-            raise TypeError("`momentum_aperture` must be a DataFrame-like object with columns "
+        if not hasattr(local_momentum_acceptance, "columns") or not hasattr(local_momentum_acceptance, "__getitem__"):
+            raise TypeError("`local_momentum_acceptance` must be a DataFrame-like object with columns "
                             "'s', 'deltan', 'deltap'.")
-        missing = required_cols - set(momentum_aperture.columns)
+        missing = required_cols - set(local_momentum_acceptance.columns)
         if missing:
-            raise ValueError(f"`momentum_aperture` missing columns: {sorted(missing)}")
+            raise ValueError(f"`local_momentum_acceptance` missing columns: {sorted(missing)}")
 
         for col in ("s", "deltan", "deltap"):
             try:
-                vals = momentum_aperture[col].astype(float)
+                vals = local_momentum_acceptance[col].astype(float)
             except Exception:
                 raise TypeError(f"`{col}` column must be numeric (cannot coerce to float).")
             if not vals.notna().all():
@@ -275,11 +275,11 @@ class TouschekManager:
                              "Please add them before initializing the TouschekManager.")
 
         # Momentum aperture
-        ap = momentum_aperture.copy()
-        ap['deltan'] *= momentum_aperture_scale
-        ap['deltap'] *= momentum_aperture_scale
-        momentum_aperture = ap
-        self.momentum_aperture = momentum_aperture
+        ap = local_momentum_acceptance.copy()
+        ap['deltan'] *= local_momentum_acceptance_scale
+        ap['deltap'] *= local_momentum_acceptance_scale
+        local_momentum_acceptance = ap
+        self.local_momentum_acceptance = local_momentum_acceptance
 
         self.sigma_z = sigma_z
         self.sigma_delta = sigma_delta
@@ -323,7 +323,7 @@ class TouschekManager:
         line = self.line
         tab = line.get_table()
 
-        momentum_aperture = self.momentum_aperture
+        local_momentum_acceptance = self.local_momentum_acceptance
 
         if self.twiss is None:
             twiss_method = self.kwargs.get("method", "6d")
@@ -349,8 +349,8 @@ class TouschekManager:
             alfy = twiss["alfy", nn]; bety = twiss["bety", nn]
             dx   = twiss["dx",   nn]; dpx = twiss["dpx",  nn]
             dy   = twiss["dy",   nn]; dpy = twiss["dpy",  nn]
-            dN = np.interp(s, momentum_aperture.s, momentum_aperture.deltan)
-            dP = np.interp(s, momentum_aperture.s, momentum_aperture.deltap)
+            dN = np.interp(s, local_momentum_acceptance.s, local_momentum_acceptance.deltan)
+            dP = np.interp(s, local_momentum_acceptance.s, local_momentum_acceptance.deltap)
 
             x_co = twiss["x", nn]; px_co = twiss["px", nn]
             y_co = twiss["y", nn]; py_co = twiss["py", nn]
@@ -386,7 +386,7 @@ class TouschekManager:
             #     nz_eff = min(nz, 0.85 * min(|δN|, δP) / σδ)
             #
             # where δN, δP are the negative/positive momentum aperture limits
-            # (scaled by momentum_aperture_scale). This ensures that the sampled
+            # (scaled by local_momentum_acceptance_scale). This ensures that the sampled
             # longitudinal range ±nz_eff*σδ always lies strictly inside the local
             # momentum aperture, with a small safety factor (0.85). As a result,
             # only pathological large-weight events are avoided, and the Monte Carlo
