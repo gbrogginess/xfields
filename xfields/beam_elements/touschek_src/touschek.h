@@ -345,8 +345,8 @@ void TouschekScatter(TouschekScatteringData el,
 
     static int seeded_once = 0;
     if (!seeded_once){
-        long  seed = TouschekScatteringData_get__seed(el);
-        short inhibit = (short)TouschekScatteringData_get__inhibit_permute(el);
+        long  seed = TouschekScatteringData_get_seed(el);
+        short inhibit = (short)TouschekScatteringData_get_inhibit_permute(el);
         seedElegantRandomNumbers(seed, inhibit);
         seeded_once = 1;
     }
