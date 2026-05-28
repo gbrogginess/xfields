@@ -239,26 +239,27 @@ class TouschekManager:
         if n_simulated is None:
             raise ValueError("`n_simulated` is required.")
 
-        # Momentum aperture validation
-        required_cols = {"s", "deltan", "deltap"}
-        if not hasattr(local_momentum_acceptance, "columns") or not hasattr(local_momentum_acceptance, "__getitem__"):
-            raise TypeError("`local_momentum_acceptance` must be a DataFrame-like object with columns "
-                            "'s', 'deltan', 'deltap'.")
-        missing = required_cols - set(local_momentum_acceptance.columns)
+        # Local momentum acceptnace validation
+        required_cols = {"name", "s", "deltan", "deltap"}
+        if not isinstance(local_momentum_acceptance, xt.Table):
+            raise TypeError("`local_momentum_acceptance` must be an `xt.Table` object.")
+        missing = required_cols - set(local_momentum_acceptance._col_names)
         if missing:
             raise ValueError(f"`local_momentum_acceptance` missing columns: {sorted(missing)}")
 
         for col in ("s", "deltan", "deltap"):
             try:
-                vals = local_momentum_acceptance[col].astype(float)
+                vals = np.asarray(local_momentum_acceptance[col], dtype=float)
             except Exception:
                 raise TypeError(f"`{col}` column must be numeric (cannot coerce to float).")
-            if not vals.notna().all():
-                bad = list(vals.index[~vals.notna()][:5])
-                raise ValueError(f"`{col}` contains NaN at rows {bad}.")
-            if (abs(vals) == float("inf")).any():
-                bad = list(vals.index[(abs(vals) == float("inf"))][:5])
-                raise ValueError(f"`{col}` contains inf at rows {bad}.")
+            nan_mask = np.isnan(vals)
+            if nan_mask.any():
+                bad = list(np.where(nan_mask)[0][:5])
+                raise ValueError(f"`{col}` contains NaN at indices {bad}.")
+            inf_mask = np.isinf(vals)
+            if inf_mask.any():
+                bad = list(np.where(inf_mask)[0][:5])
+                raise ValueError(f"`{col}` contains inf at indices {bad}.")
 
         self.line = line
         self.particle_ref = line.particle_ref
@@ -274,11 +275,9 @@ class TouschekManager:
             raise ValueError("The line does not contain any TouschekScattering. "
                              "Please add them before initializing the TouschekManager.")
 
-        # Momentum aperture
-        ap = local_momentum_acceptance.copy()
-        ap['deltan'] *= local_momentum_acceptance_scale
-        ap['deltap'] *= local_momentum_acceptance_scale
-        local_momentum_acceptance = ap
+        # Local momentum acceptance
+        local_momentum_acceptance.deltan *= local_momentum_acceptance_scale
+        local_momentum_acceptance.deltap *= local_momentum_acceptance_scale
         self.local_momentum_acceptance = local_momentum_acceptance
 
         self.sigma_z = sigma_z

@@ -113,9 +113,11 @@ line.insert(placements)
 # Evaluate local momentum acceptance profile
 ######################################################
 # Evaluate local momentum aperture at the touschek scattering centers
+tab = line.get_table()
+elements = tab.rows.match(element_type="TouschekScattering").name
 lma = line.get_local_momentum_acceptance(
     # twiss=tw,
-    include_type_pattern="TouschekScattering",
+    elements=elements,
     nemitt_x=nemitt_x,
     nemitt_y=nemitt_y,
     y_offset=1e-9,
@@ -124,6 +126,7 @@ lma = line.get_local_momentum_acceptance(
     delta_step_size=1e-4,
     n_turns=1000,
     method="4d"
+)
 
 ######################################################
 # Plot
