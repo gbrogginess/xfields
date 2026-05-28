@@ -17,6 +17,91 @@ C_LIGHT_VACUUM = physical_constants['speed of light in vacuum'][0]
 CLASSICAL_ELECTRON_RADIUS = physical_constants['classical electron radius'][0]
 
 class TouschekCalculator:
+    '''
+    Internal helper that evaluates Piwinski scattering rates and integrates
+    them along the lattice.
+
+    This class is instantiated and owned by :class:`TouschekManager`; it
+    should not be constructed directly by users.
+
+    Parameters
+    ----------
+    manager : TouschekManager
+        The owning manager, from which beam parameters, optics, and the
+        local momentum acceptance table are read.
+
+    Attributes
+    ----------
+    twiss : xtrack.TwissTable or None
+        Twiss table for the ring.  Injected by
+        :meth:`TouschekManager.initialise_touschek` before any rate
+        evaluation is performed.
+
+    Notes
+    -----
+    **Piwinski integral**
+
+    The core computation is the integral
+
+    .. math::
+
+        I(\\tau_m) = \\int_{k_m}^{\\pi/2}
+        f(k,\\, B_1,\\, B_2)\\,
+        \\exp(-B_1 \\tan^2 k)\\,
+        I_0(B_2 \\tan^2 k)\\,
+        \\sqrt{1+\\tan^2 k}\\; dk,
+
+    where :math:`k_m = \\arctan\\sqrt{\\tau_m}` and
+    :math:`\\tau_m = \\beta^2 \\delta_m^2` is the minimum fractional
+    momentum transfer squared corresponding to the local momentum
+    acceptance :math:`\\delta_m`.  :math:`B_1` and :math:`B_2` encode the
+    local beam optics and emittances; :math:`I_0` is the modified Bessel
+    function of the first kind of order 0.  For large arguments
+    (:math:`B_2 t > 500`) the asymptotic expansion of :math:`I_0` is used
+    to avoid overflow.
+
+    The integral is evaluated numerically with
+    ``scipy.integrate.quad`` at absolute/relative tolerances of
+    :math:`10^{-16}` / :math:`10^{-12}`.
+
+    **Local scattering rate**
+
+    The Piwinski scattering rate at a single element is
+
+    .. math::
+
+        R = \\frac{r_e^2\\, c\\, N_b^2}{8\\pi\\, \\gamma^2\\, \\sigma_z\\,
+            \\sqrt{\\sigma_x^2 \\sigma_y^2 - \\sigma_\\delta^4 d_x^2 d_y^2}}
+            \\cdot 2\\sqrt{\\pi(B_1^2-B_2^2)}\\, I(\\tau_m),
+
+    averaged symmetrically over the positive and negative LMA limits.
+    Here :math:`r_e` is the classical electron radius, :math:`c` the speed
+    of light, :math:`N_b` the bunch population, and
+    :math:`\\gamma, \\beta` are the relativistic factors of the reference
+    particle.
+
+    **Integrated rate (trapezoidal rule)**
+
+    For each :class:`TouschekScattering` element the rate is integrated
+    over the preceding lattice section using the trapezoidal rule:
+
+    .. math::
+
+        \\hat{R}_i = \\int_{s_{i-1}}^{s_i} R(s)\\,ds
+                   \\;/\\; (c\\, T_{\\text{rev}})
+
+    This gives the per-bunch, per-turn scattering probability in the
+    lattice section, which is later used to weight the Monte Carlo
+    macro-particles.
+
+    References
+    ----------
+    .. [1] A. Piwinski, "The Touschek Effect in Strong Focusing Storage
+       Rings", arXiv:physics/9903034 (1999).
+    .. [2] A. Xiao and M. Borland, "Monte Carlo simulation of Touschek
+       effect", Phys. Rev. ST Accel. Beams **13**, 074201 (2010).
+       https://doi.org/10.1103/PhysRevSTAB.13.074201
+    '''
     def __init__(self, manager):
         self.manager = manager
         self.twiss = None
@@ -216,6 +301,227 @@ class TouschekCalculator:
 
 
 class TouschekManager:
+    '''
+    High-level manager that orchestrates a full Touschek scattering simulation.
+
+    The manager:
+
+    1. Computes the Piwinski scattering rate at every
+       :class:`TouschekScattering` element in the line using the local beam
+       optics, emittances, and the local momentum acceptance (LMA).
+    2. Integrates those rates over each lattice section between consecutive
+       scattering elements (trapezoidal rule) to obtain the per-bunch,
+       per-turn loss probability in each section.
+    3. Configures each :class:`TouschekScattering` element with all local
+       parameters so that it can generate and weight Monte Carlo
+       macro-particles consistently with the Piwinski formula.
+
+    After :meth:`initialise_touschek` the user calls
+    :meth:`TouschekScattering.scatter` element by element, tracks the
+    returned particles around the ring, and computes the lifetime from the
+    total weight of lost particles.
+
+    Parameters
+    ----------
+    line : xtrack.Line
+        The accelerator lattice.  Must contain at least one
+        :class:`TouschekScattering` element and a ``particle_ref``
+        attribute.
+    twiss : xtrack.TwissTable or None, optional
+        Pre-computed Twiss table.  If ``None``, it is computed internally
+        by :meth:`initialise_touschek` using the ``method`` keyword
+        argument (default ``"6d"``).
+    local_momentum_acceptance : xtrack.Table
+        Table returned by ``line.get_local_momentum_acceptance()``.  Must
+        contain the columns ``name``, ``s``, ``deltan`` (negative LMA,
+        :math:`\\delta_N < 0`), and ``deltap`` (positive LMA,
+        :math:`\\delta_P > 0`).  Values are scaled in-place by
+        ``local_momentum_acceptance_scale`` upon construction.
+    nemitt_x : float, optional
+        Horizontal normalised emittance [m·rad].  Mutually exclusive with
+        ``gemitt_x``.
+    nemitt_y : float, optional
+        Vertical normalised emittance [m·rad].  Mutually exclusive with
+        ``gemitt_y``.
+    gemitt_x : float, optional
+        Horizontal geometric emittance [m·rad].  Mutually exclusive with
+        ``nemitt_x``.
+    gemitt_y : float, optional
+        Vertical geometric emittance [m·rad].  Mutually exclusive with
+        ``nemitt_y``.
+    sigma_z : float
+        RMS bunch length [m].
+    sigma_delta : float
+        RMS relative momentum spread :math:`\\sigma_\\delta`.
+    bunch_population : float
+        Number of real particles per bunch, :math:`N_b`.
+    n_simulated : int
+        Number of scattered macro-particle candidates to generate per
+        scattering element.  Larger values improve statistics at the cost
+        of CPU time.  Values of :math:`10^6`–:math:`10^7` are typical.
+    nx : float, optional
+        Truncation of the transverse-horizontal Gaussian sampling window in
+        units of :math:`\\sqrt{\\varepsilon_x}`.  Default 3.
+    ny : float, optional
+        Truncation of the transverse-vertical Gaussian sampling window in
+        units of :math:`\\sqrt{\\varepsilon_y}`.  Default 3.
+    nz : float, optional
+        Truncation of the longitudinal Gaussian sampling window in units of
+        :math:`\\sigma_\\delta`.  May be reduced element-by-element (see
+        Notes) to prevent drawing initial particles outside the LMA.
+        Default 3.
+    local_momentum_acceptance_scale : float, optional
+        Multiplicative safety factor applied to the LMA on construction.
+        A value of 0.85 (default) ensures that Monte Carlo particles are
+        scored as *lost* only when their momentum deviation exceeds
+        85 % of the physical aperture limit, providing a margin against
+        finite-turn tracking inaccuracies.
+    ignored_portion : float, optional
+        Fraction of the total scattered weight discarded by ``pickPart`` to
+        suppress pathologically high-weight, near-zero-angle events.
+        Typical value: 0.01.  Default 0.01.
+    seed : int, optional
+        RNG seed for the ELEGANT-compatible 48-bit LCG generator used
+        inside :class:`TouschekScattering`.  Default 1997.
+    method : str, optional
+        Twiss method forwarded to ``line.twiss()`` when ``twiss`` is
+        ``None``.  Accepted values: ``"4d"``, ``"6d"``.  Default ``"6d"``.
+
+    Attributes
+    ----------
+    line : xtrack.Line
+        The accelerator lattice passed at construction.
+    particle_ref : xtrack.Particles
+        Reference particle extracted from ``line.particle_ref``.
+    twiss : xtrack.TwissTable or None
+        Twiss table (populated by :meth:`initialise_touschek` if not
+        provided at construction).
+    gemitt_x, gemitt_y : float
+        Geometric emittances [m·rad] derived from the input normalised or
+        geometric emittances.
+    local_momentum_acceptance : xtrack.Table
+        The (scaled) LMA table.
+    sigma_z, sigma_delta : float
+        Bunch length [m] and momentum spread.
+    bunch_population : float
+        Bunch population :math:`N_b`.
+    n_simulated : int
+        Number of simulated scattered candidates per element.
+    nx, ny, nz : float
+        Phase-space sampling truncation parameters.
+    seed : int
+        RNG seed.
+    touschek : TouschekCalculator
+        The calculator instance used internally to evaluate Piwinski rates.
+
+    Raises
+    ------
+    ValueError
+        If ``line`` is ``None`` or lacks a ``particle_ref``.
+    ValueError
+        If ``local_momentum_acceptance``, ``sigma_z``, ``sigma_delta``,
+        ``bunch_population``, or ``n_simulated`` are not provided.
+    TypeError
+        If ``local_momentum_acceptance`` is not an ``xtrack.Table``.
+    ValueError
+        If ``local_momentum_acceptance`` is missing required columns or
+        contains ``NaN`` / ``Inf`` values.
+    ValueError
+        If the line contains no :class:`TouschekScattering` elements.
+    ValueError
+        If both normalised and geometric emittances are provided, or if
+        neither is provided.
+
+    Notes
+    -----
+    **Longitudinal cutoff reduction** (``nz_eff``)
+
+    At each :class:`TouschekScattering` element, the effective longitudinal
+    truncation is capped at
+
+    .. math::
+
+        n_{z,\\text{eff}} = \\min\\!\\left(n_z,\\;
+            0.85 \\cdot \\frac{\\min(|\\delta_N|,\\, \\delta_P)}{\\sigma_\\delta}
+        \\right).
+
+    This guarantees that initial particles drawn from the longitudinal
+    distribution always lie strictly within the local momentum aperture.
+    Particles with :math:`|\\delta| > \\delta_{\\text{LMA}}` before
+    scattering acquire divergently large weights because the Møller
+    cross-section diverges at :math:`\\theta^* \\to 0`, distorting both
+    the Monte Carlo rate and the lifetime estimate.  The 0.85 safety
+    factor provides a small guard margin.
+
+    A warning is printed whenever this reduction is triggered at an
+    element.
+
+    **Typical workflow**
+
+    .. code-block:: python
+
+        import numpy as np
+        import xobjects as xo
+        import xtrack as xt
+        import xfields as xf
+
+        # --- Build and configure line (with TouschekScattering elements) ---
+        # line = ...
+
+        # --- Evaluate local momentum acceptance ---
+        lma = line.get_local_momentum_acceptance(
+            elements=elements,
+            nemitt_x=nemitt_x, nemitt_y=nemitt_y,
+            delta_negative_limit=-0.012, delta_positive_limit=0.012,
+            n_turns=1000, method="4d",
+        )
+
+        # --- Create manager and initialise ---
+        manager = xf.TouschekManager(
+            line,
+            local_momentum_acceptance=lma,
+            nemitt_x=nemitt_x, nemitt_y=nemitt_y,
+            sigma_z=sigma_z, sigma_delta=sigma_delta,
+            bunch_population=bunch_population,
+            n_simulated=5e6,
+        )
+        manager.initialise_touschek()
+
+        # --- Scatter and track ---
+        line.build_tracker(_context=xo.ContextCpu(omp_num_threads="auto"))
+        particles_list = []
+        for element in touschek_elements:
+            particles = line[element].scatter()
+            line.track(particles, ele_start=element, ele_stop=element,
+                       num_turns=nturns)
+            particles_list.append(particles)
+
+        # --- Compute lifetime ---
+        particles = xt.Particles.merge(particles_list)
+        lost = particles.filter(particles.state == 0)
+        loss_rate = sum(lost.weight)
+        lifetime = bunch_population / loss_rate   # [s]
+
+    **Partial initialisation**
+
+    :meth:`initialise_touschek` accepts an optional ``element`` argument
+    to (re-)configure a single :class:`TouschekScattering` element without
+    reprocessing the entire lattice — useful when iterating over elements
+    one at a time in a memory-constrained environment.
+
+    References
+    ----------
+    .. [1] A. Piwinski, "The Touschek Effect in Strong Focusing Storage
+       Rings", arXiv:physics/9903034 (1999).
+    .. [2] A. Xiao and M. Borland, "Monte Carlo simulation of Touschek
+       effect", Phys. Rev. ST Accel. Beams **13**, 074201 (2010).
+       https://doi.org/10.1103/PhysRevSTAB.13.074201
+
+    Examples
+    --------
+    See the "Typical workflow" section above, or the full example script
+    ``examples/touschek/001_touschek_toy_ring.py``.
+    '''
     def __init__(self, line=None, twiss=None, local_momentum_acceptance=None,
                  nemitt_x=None, nemitt_y=None,
                  sigma_z=None, sigma_delta=None, bunch_population=None,
@@ -319,6 +625,55 @@ class TouschekManager:
         self.touschek = TouschekCalculator(self)
 
     def initialise_touschek(self, element=None):
+        '''
+        Compute and configure all Piwinski rates in the lattice.
+
+        For each :class:`TouschekScattering` element this method:
+
+        1. Evaluates the local Piwinski scattering rate using the Twiss
+        parameters, beam emittances, and the local momentum acceptance.
+        2. Integrates the rate over the preceding lattice section using the
+        trapezoidal rule to obtain the per-bunch, per-turn loss probability.
+        3. Stores the integrated rate and all local optics parameters on the
+        element via :meth:`TouschekScattering._configure` so that
+        :meth:`TouschekScattering.scatter` can weight the Monte Carlo
+        macro-particles correctly.
+
+        If ``self.twiss`` is ``None`` when this method is called, a Twiss
+        computation is performed automatically using the ``method`` keyword
+        stored in ``self.kwargs`` (default ``"6d"``).
+
+        Parameters
+        ----------
+        element : str or None, optional
+            If ``None`` (default), all :class:`TouschekScattering` elements in
+            the line are initialised in one pass.  If a string, only the named
+            element is (re-)initialised; the Piwinski rate is integrated only
+            over the lattice section between that element and the preceding
+            scattering centre.  This is faster when iterating element-by-element
+            in a memory-constrained environment.
+
+        Raises
+        ------
+        TypeError
+            If ``element`` is not a string when provided.
+        ValueError
+            If the string ``element`` is not present in the line.
+        TypeError
+            If ``line[element]`` is not a :class:`TouschekScattering` instance.
+
+        Notes
+        -----
+        The Piwinski rate printed in the progress messages is the *local*
+        (per-metre) rate, not the integrated value.  The integrated rate stored
+        on each element is divided by :math:`c \\cdot T_{\\text{rev}}` to
+        convert it from [m·Hz/m] to a dimensionless per-turn probability.
+
+        The computation time scales roughly linearly with the number of
+        :class:`TouschekScattering` elements; for a ring with
+        :math:`\\mathcal{O}(10)` elements it typically completes in a few
+        seconds.
+        '''
         line = self.line
         tab = line.get_table()
 

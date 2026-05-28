@@ -8,6 +8,178 @@ import xtrack as xt
 import numpy as np
 
 class TouschekScattering(xt.BeamElement):
+    """
+    Beam element that performs a Monte Carlo Touschek scattering simulation
+    at a single location in a lattice.
+
+    Each element represents one scattering center along the lattice.  When
+    :meth:`scatter` is called it draws macro-particle pairs from the local
+    6D phase-space (Gaussian) distribution, applies the Møller cross-section,
+    boosts scattered pairs back to the lab frame, and returns the subset of
+    macro-particles whose momentum deviation exceeds the local momentum
+    acceptance (LMA).  Those particles are subsequently tracked around the
+    ring to determine where they are lost.
+
+    The element is *passive* during normal tracking (``track`` is a no-op);
+    all physics happens inside :meth:`scatter`.
+
+    The Monte Carlo kernel is implemented in C99 and follows the ELEGANT
+    algorithm of Xiao & Borland (PRSTAB 13, 074201, 2010).
+
+    Parameters
+    ----------
+    s : float, optional
+        Longitudinal position of the element in the lattice [m].  Default 0.
+    particle_ref : xtrack.Particles, optional
+        Reference particle carrying ``p0c``, ``mass0``, ``q0``, ``pdg_id``.
+        Defaults to an empty ``xt.Particles()`` object.
+    element_index : int, optional
+        Index of this element in ``line.element_names``; used to set
+        ``particles.at_element`` after scattering so that tracking starts
+        from the correct location.  Default 0.
+    bunch_population : float, optional
+        Number of real particles in one bunch.  Default 0.
+    alfx, betx : float, optional
+        Horizontal Twiss parameters at the element.  Default 0.
+    alfy, bety : float, optional
+        Vertical Twiss parameters at the element.  Default 0.
+    dx, dpx : float, optional
+        Horizontal dispersion and its derivative at the element [m, 1].
+        Default 0.
+    dy, dpy : float, optional
+        Vertical dispersion and its derivative at the element [m, 1].
+        Default 0.
+    x_co, px_co : float, optional
+        Horizontal closed-orbit position and normalised momentum at the
+        element.  Default 0.
+    y_co, py_co : float, optional
+        Vertical closed-orbit position and normalised momentum.  Default 0.
+    zeta_co, delta_co : float, optional
+        Longitudinal closed-orbit co-ordinate and relative momentum
+        deviation.  Default 0.
+    deltaN : float, optional
+        Negative local momentum acceptance (scaled).  Default 0.
+    deltaP : float, optional
+        Positive local momentum acceptance (scaled).  Default 0.
+    gemitt_x : float, optional
+        Horizontal geometric emittance [m·rad].
+        Default 0.
+    gemitt_y : float, optional
+        Vertical geometric emittance [m·rad].
+        Default 0.
+    sigma_z : float, optional
+        RMS bunch length [m].  Default 0.
+    sigma_delta : float, optional
+        RMS relative momentum spread.  Default 0.
+    n_simulated : int, optional
+        Number of macro-particles (scattered candidates) to generate in the
+        Monte Carlo loop.  Larger values reduce statistical noise but
+        increase CPU time.  Default 0.
+    nx, ny, nz : float, optional
+        Truncation of the Gaussian distribution in units of
+        :math:`\\sqrt{\\varepsilon}` for the transverse planes and
+        :math:`\\sigma` for the longitudinal plane.  The sampling window is
+        :math:`\\pm n_x \\sqrt{\\varepsilon_x}`, etc.  ``nz`` may be
+        reduced automatically by :class:`TouschekManager` to prevent
+        particles being drawn outside the LMA before scattering.
+        Default 0.
+    theta_min, theta_max : float, optional
+        Lower and upper limits of the centre-of-mass scattering angle
+        :math:`\\theta^*` [rad].  In practice set to
+        :math:`0.00005\\pi` and :math:`0.99995\\pi` to avoid the
+        forward/backward divergence of the Møller cross-section.
+        Default 0.
+    piwinski_rate : float, optional
+        Local Piwinski scattering rate [Hz] evaluated at this element.
+        Stored for diagnostics; not used in the Monte Carlo kernel.
+        Default 0.
+    ignored_portion : float, optional
+        Fraction of the total scattered weight that can be discarded by the
+        ``pickPart`` routine to remove pathologically high-weight
+        macro-particles.  ``0`` keeps all particles; ``0.01`` (the typical
+        value) discards up to 1 % of the total weight.  Default 0.
+    integrated_piwinski_rate : float, optional
+        Piwinski rate integrated (trapezoidal rule) over the lattice section
+        preceding this element and divided by :math:`c` and
+        :math:`T_{\\text{rev}}` to give a per-bunch, per-turn rate [1/s].
+        Set by :meth:`TouschekManager.initialise_touschek`; used to weight
+        the scattered macro-particles.  Default 0.
+    seed : int, optional
+        Seed for the ELEGANT-compatible 48-bit LCG random number generator.
+        Using the same seed reproduces the ELEGANT Monte Carlo sequence
+        exactly.  Default 1997.
+    inhibit_permute : int, optional
+        If non-zero, the random-order permutation step (``randomizeOrder``)
+        is skipped.  Intended for reproducibility testing only.  Default 0.
+
+    Attributes
+    ----------
+    piwinski_rate : float
+        Local Piwinski scattering rate [Hz] at this element.
+    total_mc_rate : float
+        Total Monte Carlo scattering rate [Hz] returned by the last call to
+        :meth:`scatter`.
+    ignored_rate : float
+        Rate [Hz] associated with the macro-particles discarded by
+        ``pickPart`` in the last call to :meth:`scatter`.
+    theta_log : dict
+        Mapping ``{particle_id: theta}`` of centre-of-mass scattering
+        angles [rad] for the particles returned by the last call to
+        :meth:`scatter`.
+
+    Notes
+    -----
+    **Physics summary**
+
+    The Monte Carlo loop follows Xiao & Borland (PRSTAB 13, 074201, 2010):
+
+    1. Two particles are drawn from the local 6-D Gaussian distribution
+       using ``selectPartGauss`` with a truncated range of
+       :math:`\\pm n \\sqrt{\\varepsilon}`.
+    2. The pair is boosted to the centre-of-mass (CM) frame
+       (``bunch2cm``).
+    3. A scattering angle :math:`\\theta^*` is drawn uniformly in
+       :math:`[\\theta_{\\min},\\,\\theta_{\\max}]` and a random azimuthal
+       angle :math:`\\phi` is drawn uniformly in :math:`[0,\\,\\pi]`.
+    4. The Møller cross-section ``moeller`` is evaluated at
+       :math:`\\theta^*`.
+    5. Scattered momenta are rotated (``eulertrans``) and boosted back to
+       the lab frame (``cm2bunch``).
+    6. A particle is selected for tracking only if its resulting
+       :math:`\\delta` falls outside the LMA:
+       :math:`\\delta < \\delta_N` or :math:`\\delta > \\delta_P`.
+    7. ``pickPart`` removes the highest-weight fraction
+       ``ignored_portion`` of candidates to suppress divergent
+       low-angle events.
+
+    Macro-particle weights are normalised so that
+    :math:`\\sum_i w_i` equals the per-turn loss rate in the
+    corresponding lattice section (in particles/turn).
+
+    **Closed-orbit shift**
+
+    After scattering, the coordinate offset due to the closed orbit is
+    added back:
+
+    **Longitudinal cutoff reduction** (``nz_eff``)
+
+    :class:`TouschekManager` may reduce ``nz`` to
+    :math:`\\min(n_z,\\; 0.85 \\cdot \\min(|\\delta_N|, \\delta_P) / \\sigma_\\delta)`
+    to prevent sampling initial particles whose :math:`|\\delta|` already
+    exceeds the LMA before scattering.  Such particles receive artificially
+    large weights (Møller diverges at :math:`\\theta^* \\to 0`) and distort
+    the lifetime estimate.
+
+    References
+    ----------
+    .. [1] A. Xiao and M. Borland, "Monte Carlo simulation of Touschek
+       effect", Phys. Rev. ST Accel. Beams **13**, 074201 (2010).
+       https://doi.org/10.1103/PhysRevSTAB.13.074201
+    .. [2] A. Piwinski, "The Touschek Effect in Strong Focusing Storage
+       Rings", arXiv:physics/9903034 (1999).
+    .. [3] M. Borland, "elegant: A Flexible SDDS-Compliant Code for
+       Accelerator Simulation", APS LS-287 (2000).
+    """
 
     _xofields = {
         'p0c': xo.Float64,
