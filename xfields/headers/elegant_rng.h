@@ -1,10 +1,3 @@
-/*************************************************************************\
-* Portions adapted from Elegant and the SDDS Toolkit.
-* Copyright (c) 2002 The University of Chicago.
-* Copyright (c) 2002 The Regents of the University of California.
-* This file is distributed subject to a Software License Agreement found
-* in the file LICENSE that is included with this distribution.
-\*************************************************************************/
 /*
  *  elegant_rng.h — Elegant-compatible RNG utilities (C99)
  *
@@ -22,16 +15,6 @@
  *  - SDDS: mdbmth/dlaran.c           (C translation of LAPACK's DLARAN, via f2c)
  *  - Elegant: src/drand_oag.c        (random_1_elegant and seed behavior)
  *  - LAPACK: DLARAN (48-bit LCG RNG core)
- *
- *  Licenses & Notices
- *  ------------------
- *  - Upstream notice preserved above (Elegant/SDDS).
- *  - License texts:
- *      xfields/third_party/elegant/LICENSE
- *      xfields/third_party/SDDS/LICENSE
- *      xfields/third_party/lapack/LICENSE
- *  - This file is a derivative work.
- *    Modifications © 2025 Giacomo Broggi / CERN.
  *
  *  Purpose / Exposed API
  *  ---------------------

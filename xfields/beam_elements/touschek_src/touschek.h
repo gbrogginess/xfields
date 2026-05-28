@@ -1,11 +1,3 @@
-/*************************************************************************\
-* Copyright (c) 2002 The University of Chicago, as Operator of Argonne
-* National Laboratory.
-* Copyright (c) 2002 The Regents of the University of California, as
-* Operator of Los Alamos National Laboratory.
-* This file is distributed subject to a Software License Agreement found
-* in the file LICENSE that is included with this distribution.
-\*************************************************************************/
 /*
  *  touschek.h — Touschek scattering kernel (C99, header-only)
  *
@@ -22,16 +14,6 @@
  *  - SDDS Toolkit utilities: mdbmth/drand.c, mdbmth/dlaran.c
  *  - LAPACK DLARAN (48-bit LCG RNG core)
  *
- *  Licenses & Notices
- *  ------------------
- *  - Upstream notice preserved above (Elegant/SDDS).
- *  - See license texts in:
- *      xfields/third_party/elegant/LICENSE
- *      xfields/third_party/SDDS/LICENSE
- *      xfields/third_party/lapack/LICENSE
- *  - This file is a derivative work.
- *    Modifications © 2025 Giacomo Broggi / CERN.
- *
  *  RNG compatibility
  *  -----------------
  *  RNG streams are chosen to reproduce Elegant’s sequences.
@@ -45,13 +27,6 @@
  *  - Minor safety/cleanup (bounds checks, allocations, comments).
  *  - Physics and selection logic preserved.
  *
- *  Citation
- *  --------
- *  If you publish results obtained with this routine, please cite:
- *    - M. Borland, “elegant: A Flexible SDDS-Compliant Code for Accelerator
- *      Simulation,” APS LS-287 (2000).
- *    - A. Xiao and M. Borland, “Monte Carlo simulation of Touschek effect,”
- *      Phys. Rev. ST Accel. Beams 13, 074201 (2010). DOI: 10.1103/PhysRevSTAB.13.074201
  */
 #ifndef XTRACK_TOUSCHEK_H
 #define XTRACK_TOUSCHEK_H
@@ -305,30 +280,30 @@ void TouschekScatter(TouschekScatteringData el,
                      double* totalMCRate_out,
                      int64_t* n_selected_out){
 
-    const double p0c   = TouschekScatteringData_get__p0c(el);
-    const double bunch_population = TouschekScatteringData_get__bunch_population(el);
-    const double gemitt_x = TouschekScatteringData_get__gemitt_x(el);
-    const double gemitt_y = TouschekScatteringData_get__gemitt_y(el);
-    const double alfx  = TouschekScatteringData_get__alfx(el);
-    const double betx  = TouschekScatteringData_get__betx(el);
-    const double alfy  = TouschekScatteringData_get__alfy(el);
-    const double bety  = TouschekScatteringData_get__bety(el);
-    const double dx    = TouschekScatteringData_get__dx(el);
-    const double dpx   = TouschekScatteringData_get__dpx(el);
-    const double dy    = TouschekScatteringData_get__dy(el);
-    const double dpy   = TouschekScatteringData_get__dpy(el);
-    const double deltaN = TouschekScatteringData_get__deltaN(el);
-    const double deltaP = TouschekScatteringData_get__deltaP(el);
-    const double sigma_z   = TouschekScatteringData_get__sigma_z(el);
-    const double sigma_delta = TouschekScatteringData_get__sigma_delta(el);
-    const double n_simulated = TouschekScatteringData_get__n_simulated(el);
-    const double nx = TouschekScatteringData_get__nx(el);
-    const double ny = TouschekScatteringData_get__ny(el);
-    const double nz = TouschekScatteringData_get__nz(el);
-    const double theta_min = TouschekScatteringData_get__theta_min(el);
-    const double theta_max = TouschekScatteringData_get__theta_max(el);
-    const double ignoredPortion = TouschekScatteringData_get__ignored_portion(el);
-    const double integrated_piwinski_rate = TouschekScatteringData_get__integrated_piwinski_rate(el);
+    const double p0c   = TouschekScatteringData_get_p0c(el);
+    const double bunch_population = TouschekScatteringData_get_bunch_population(el);
+    const double gemitt_x = TouschekScatteringData_get_gemitt_x(el);
+    const double gemitt_y = TouschekScatteringData_get_gemitt_y(el);
+    const double alfx  = TouschekScatteringData_get_alfx(el);
+    const double betx  = TouschekScatteringData_get_betx(el);
+    const double alfy  = TouschekScatteringData_get_alfy(el);
+    const double bety  = TouschekScatteringData_get_bety(el);
+    const double dx    = TouschekScatteringData_get_dx(el);
+    const double dpx   = TouschekScatteringData_get_dpx(el);
+    const double dy    = TouschekScatteringData_get_dy(el);
+    const double dpy   = TouschekScatteringData_get_dpy(el);
+    const double deltaN = TouschekScatteringData_get_deltaN(el);
+    const double deltaP = TouschekScatteringData_get_deltaP(el);
+    const double sigma_z   = TouschekScatteringData_get_sigma_z(el);
+    const double sigma_delta = TouschekScatteringData_get_sigma_delta(el);
+    const double n_simulated = TouschekScatteringData_get_n_simulated(el);
+    const double nx = TouschekScatteringData_get_nx(el);
+    const double ny = TouschekScatteringData_get_ny(el);
+    const double nz = TouschekScatteringData_get_nz(el);
+    const double theta_min = TouschekScatteringData_get_theta_min(el);
+    const double theta_max = TouschekScatteringData_get_theta_max(el);
+    const double ignoredPortion = TouschekScatteringData_get_ignored_portion(el);
+    const double integrated_piwinski_rate = TouschekScatteringData_get_integrated_piwinski_rate(el);
 
     long i, j, total_event, simuCount, iTotal;
     double ran1[11];
