@@ -163,30 +163,41 @@ touschek_manager = xf.TouschekManager(
     method='4d'
 )
 
+# Initialise the Touschek simulation.
+# Computes the integrated Piwinski scattering rate over each lattice section
+# between consecutive TouschekScattering elements (using the trapezoidal rule),
+# and configures each element with its local optics, beam parameters, and
+# momentum acceptance. The integrated rate is later used to assign the
+# correct weights to the Touschek-scattered macro-particles.
 touschek_manager.initialise_touschek()
 
+# Get the list of TouschekScattering elements in the line
 touschek_elements = tab.rows[tab.element_type == 'TouschekScattering'].name
 
+# Build a CPU tracker with OpenMP multithreading to speed up tracking
 line.discard_tracker()
 line.build_tracker(_context=xo.ContextCpu(omp_num_threads='auto'))
 
+# For each TouschekScattering element:
+#   1. Generate Touschek-scattered macro-particles at that element
+#   2. Track them around the ring for `nturns` turns, starting and ending at that element
 particles_list = []
-for ii in range(len(touschek_elements)):
-    element = touschek_elements[ii] # xf.TouschekScattering
+for ii, element in enumerate(touschek_elements):
     s_start_elem = tab.rows[tab.name == element].s[0]
 
-    # Touschek!
+    # Generate Touschek-scattered macro-particles
     particles = line[element].scatter()
 
-    # Track!
-    print(f"\nTrack particles scattered at {element} at  s = {s_start_elem}")
+    # Track
+    print(f"\nTracking particles scattered at {element} (s = {s_start_elem:.4f} m)")
     line.track(particles, ele_start=element, ele_stop=element, num_turns=nturns, with_progress=1)
 
     particles_list.append(particles)
 
+# Merge the macro-particle sets from all scattering elements into a single collection
 particles = xt.Particles.merge(particles_list)
 
-# Refine loss location
+# Optional: Refine loss location to improve loss map accuracy
 loss_loc_refinement = xt.LossLocationRefinement(line,
     n_theta = 360, # Angular resolution in the polygonal approximation of the aperture
     r_max = 0.5, # Maximum transverse aperture in m
