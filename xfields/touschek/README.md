@@ -15,11 +15,3 @@ For reproducibility with ELEGANT, this routine uses the same RNG conventions; se
 
 The uniform RNG core is LAPACK’s DLARAN (48-bit LCG, modified BSD license) as used by Elegant.
 See `xfields/third_party/LAPACK/LICENSE`.
-
-## Third-party notice and licenses
-
-This routine contains code adapted from **ELEGANT** and **SDDS**.  
-© 2002 The University of Chicago; © 2002 The Regents of the University of California.  
-Distributed subject to their Software License Agreements. See:
-- `third_party/elegant/LICENSE`
-- `third_party/SDDS/LICENSE`

@@ -3,9 +3,8 @@ include pyproject.toml
 # Include the README
 include *.md
 
-# Include the license files
+# Include the license file
 include LICENSE.txt
-recursive-include xfields/third_party *LICENSE*
 
 # Include the notice
 include NOTICE
