@@ -280,7 +280,7 @@ class TouschekCalculator:
                     integrated_piwinski_rate = integrated / C_LIGHT_VACUUM / T_rev0
                     elem = line[nn] # xf.TouschekScattering
                     # print(f'Integrated Piwinski rate at {nn}: {integrated_piwinski_rate*1e-3} [kHz]')
-                    elem._configure(_integrated_piwinski_rate=integrated_piwinski_rate)
+                    elem._configure(integrated_piwinski_rate=integrated_piwinski_rate)
                     integrated = 0.0
                     ii_current += 1
                     if ii_current == len(ii_t):
@@ -296,7 +296,7 @@ class TouschekCalculator:
                     integrated_piwinski_rate = integrated / C_LIGHT_VACUUM / T_rev0
                     elem = line[nn] # xf.TouschekScattering
                     # print(f'Integrated Piwinski rate at {nn}: {integrated_piwinski_rate*1e-3} [kHz]')
-                    elem._configure(_integrated_piwinski_rate=integrated_piwinski_rate)
+                    elem._configure(integrated_piwinski_rate=integrated_piwinski_rate)
                     break
 
 
