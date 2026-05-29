@@ -9,255 +9,517 @@ import xobjects as xo
 import xtrack as xt
 import xfields as xf
 
-# --- Helpers -----------------------------------------------------------------
-def _build_toy_ring_with_touschek_and_apertures(
-    *,
-    aper_size=0.040,
-    install_apertures=True,
-):
+
+#############################################################
+# Shared beam parameters
+#############################################################
+NEMITT_X         = 1e-5
+NEMITT_Y         = 1e-7
+SIGMA_Z          = 4e-3
+SIGMA_DELTA      = 1e-3
+BUNCH_POPULATION = 4e9
+
+
+#############################################################
+# Module-level fixture: toy ring, twiss, and LMA
+#############################################################
+@pytest.fixture(scope='module')
+def toy_ring():
+    """
+    Build a FODO-like toy ring with TouschekScattering elements and apertures,
+    run Twiss and the local momentum acceptance exactly once for the whole
+    test session.
+
+    Yields a dict with keys:
+      line  - the xtrack.Line (with tracker already built)
+      twiss - the 4d Twiss table
+      lma   - the xt.Table of local momentum acceptance
+    """
     lbend = 3.0
     angle = np.pi / 2
-
     lquad = 0.3
-    k1qf = 0.1
-    k1qd = 0.7
 
     env = xt.Environment()
     line = env.new_line(components=[
-        env.new('mqf.1', xt.Quadrupole, length=lquad, k1=k1qf),
-        env.new('d1.1',  xt.Drift, length=1.0),
-        env.new('mb1.1', xt.Bend, length=lbend, angle=angle),
-        env.new('d2.1',  xt.Drift, length=1.0),
+        env.new('mqf.1', xt.Quadrupole, length=lquad, k1= 0.1),
+        env.new('d1.1',  xt.Drift,      length=1.0),
+        env.new('mb1.1', xt.Bend,       length=lbend, angle=angle),
+        env.new('d2.1',  xt.Drift,      length=1.0),
 
-        env.new('mqd.1', xt.Quadrupole, length=lquad, k1=-k1qd),
-        env.new('d3.1',  xt.Drift, length=1.0),
-        env.new('mb2.1', xt.Bend, length=lbend, angle=angle),
-        env.new('d4.1',  xt.Drift, length=1.0),
+        env.new('mqd.1', xt.Quadrupole, length=lquad, k1=-0.7),
+        env.new('d3.1',  xt.Drift,      length=1.0),
+        env.new('mb2.1', xt.Bend,       length=lbend, angle=angle),
+        env.new('d4.1',  xt.Drift,      length=1.0),
 
-        env.new('mqf.2', xt.Quadrupole, length=lquad, k1=k1qf),
-        env.new('d1.2',  xt.Drift, length=1.0),
-        env.new('mb1.2', xt.Bend, length=lbend, angle=angle),
-        env.new('d2.2',  xt.Drift, length=1.0),
+        env.new('mqf.2', xt.Quadrupole, length=lquad, k1= 0.1),
+        env.new('d1.2',  xt.Drift,      length=1.0),
+        env.new('mb1.2', xt.Bend,       length=lbend, angle=angle),
+        env.new('d2.2',  xt.Drift,      length=1.0),
 
-        env.new('mqd.2', xt.Quadrupole, length=lquad, k1=-k1qd),
-        env.new('d3.2',  xt.Drift, length=1.0),
-        env.new('mb2.2', xt.Bend, length=lbend, angle=angle),
-        env.new('d4.2',  xt.Drift, length=1.0),
+        env.new('mqd.2', xt.Quadrupole, length=lquad, k1=-0.7),
+        env.new('d3.2',  xt.Drift,      length=1.0),
+        env.new('mb2.2', xt.Bend,       length=lbend, angle=angle),
+        env.new('d4.2',  xt.Drift,      length=1.0),
     ])
 
     line.set_particle_ref('electron', p0c=1e9)
     line.configure_bend_model(core='full', edge=None)
 
-    # Insert Touschek scattering centers (one per magnet, plus one at end)
-    tab0 = line.get_table()
-    tab_magnets = tab0.rows[(tab0.element_type == 'Bend') | (tab0.element_type == 'Quadrupole')]
+    # Insert one TouschekScattering at the entrance of every magnet,
+    # plus one at the very end of the line — all in a single batch insert.
+    tab = line.get_table()
+    tab_bends_quads = tab.rows[
+        (tab.element_type == 'Bend') | (tab.element_type == 'Quadrupole')
+    ]
+    placements = []
+    for ii, nn in enumerate(tab_bends_quads.name):
+        tscatter_name = f'TScatter.{ii}'
+        env.elements[tscatter_name] = xf.TouschekScattering()
+        placements.append(env.place(tscatter_name, at=0.0, from_=nn))
 
-    for ii, nn in enumerate(tab_magnets.name):
-        name = f'TScatter_{ii}'
-        env.elements[name] = xf.TouschekScattering()
-        line.insert(name, at=0.0, from_=nn)
+    # Last TouschekScattering at the end of the line
+    tscatter_name = f'TScatter.{ii+1}'
+    env.elements[tscatter_name] = xf.TouschekScattering()
+    placements.append(env.place(tscatter_name, at=tab.s[-1]))
 
-    # Last TouschekScattering at end of the line
-    name_last = f'TScatter_{ii + 1}'
-    env.elements[name_last] = xf.TouschekScattering()
-    line.insert(name_last, at=float(line.get_length()))
+    line.insert(placements)
 
-    # Install rectangular apertures
-    if install_apertures:
-        tab = line.get_table()
-        needs_aperture = np.unique(tab.element_type)[
-            ~np.isin(np.unique(tab.element_type), ["", "Drift", "Marker"])
-        ]
-
-        placements = []
-        for nn, ee in zip(tab.name, tab.element_type):
-            if ee not in needs_aperture:
-                continue
-
-            env.new(
-                f'{nn}_aper_entry', xt.LimitRect,
+    # Rectangular apertures around every non-drift/non-marker element
+    aper_size = 0.040  # m
+    tab = line.get_table()
+    needs_aperture = tab.rows.match_not(element_type='Drift.*|Marker|').name
+    placements = []
+    for nn in needs_aperture:
+        env.new(f'{nn}_aper_entry', xt.LimitRect,
                 min_x=-aper_size, max_x=aper_size,
-                min_y=-aper_size, max_y=aper_size
-            )
-            placements.append(env.place(f'{nn}_aper_entry', at=f'{nn}@start'))
-
-            env.new(
-                f'{nn}_aper_exit', xt.LimitRect,
+                min_y=-aper_size, max_y=aper_size)
+        placements.append(env.place(f'{nn}_aper_entry', at=f'{nn}@start'))
+        env.new(f'{nn}_aper_exit', xt.LimitRect,
                 min_x=-aper_size, max_x=aper_size,
-                min_y=-aper_size, max_y=aper_size
-            )
-            placements.append(env.place(f'{nn}_aper_exit', at=f'{nn}@end'))
+                min_y=-aper_size, max_y=aper_size)
+        placements.append(env.place(f'{nn}_aper_exit', at=f'{nn}@end'))
+    line.insert(placements)
 
-        line.insert(placements)
+    # Twiss
+    tw = line.twiss(method='4d')
+    tw.particle_on_co.move(_context=line._context)
 
-    return env, line
-
-
-def _compute_fast_lma_at_touschek_centers(line, *, nemitt_x, nemitt_y):
-    # Fast-ish settings for tests
-    return line.local_momentum_acceptance(
-        include_type_pattern="TouschekScattering",
-        nemitt_x=nemitt_x,
-        nemitt_y=nemitt_y,
+    # LMA
+    tab = line.get_table()
+    elements = tab.rows.match(element_type='TouschekScattering').name
+    lma = line.get_local_momentum_acceptance(
+        elements=elements,
+        twiss=tw,
+        nemitt_x=NEMITT_X,
+        nemitt_y=NEMITT_Y,
         y_offset=1e-12,
         delta_negative_limit=-0.012,
         delta_positive_limit=+0.012,
         delta_step_size=0.001,
         n_turns=64,
-        method="4d",
+        method='4d',
         with_progress=False,
         verbose=False,
-    ).to_pandas()
+    )
+
+    # Build a tracker once so tracking tests can reuse it
+    line.build_tracker(_context=xo.ContextCpu(omp_num_threads=1))
+
+    yield dict(line=line, twiss=tw, lma=lma)
 
 
-# --- Tests -------------------------------------------------------------------
-def test_touschek_manager_initialise_configures_elements():
+#############################################################
+# Helper: fresh (unscaled) copy of LMA and new TouschekManager
+#############################################################
+def _fresh_lma(toy_ring_data):
+    """Return an independent copy of the module-level LMA table."""
+    lma = toy_ring_data['lma']
+    return xt.Table({
+        'name':   lma.name.copy(),
+        's':      lma.s.copy(),
+        'deltan': lma.deltan.copy(),
+        'deltap': lma.deltap.copy(),
+    })
+
+def _build_manager(line, lma, twiss=None, *, n_simulated=int(1e6), **kwargs):
     """
-    Check that TouschekManager.initialise_touschek() configures all TouschekScattering
-    elements with consistent optics, momentum aperture, and positive rates.
+    Convenience factory for TouschekManager with sensible test defaults.
     """
-    nemitt_x = 1e-5
-    nemitt_y = 1e-7
-    sigma_z = 4e-3
-    sigma_delta = 1e-3
-    bunch_population = 4e9
-
-    _, line = _build_toy_ring_with_touschek_and_apertures()
-
-    # LMA at Touschek centers (DataFrame-like as expected by TouschekManager)
-    df_ma = _compute_fast_lma_at_touschek_centers(line, nemitt_x=nemitt_x, nemitt_y=nemitt_y)
-
-    # Keep runtime reasonable
-    tm = xf.TouschekManager(
-        line,
-        local_momentum_acceptance=df_ma,
+    defaults = dict(
+        local_momentum_acceptance=lma,
         local_momentum_acceptance_scale=0.85,
-        nemitt_x=nemitt_x,
-        nemitt_y=nemitt_y,
-        sigma_z=sigma_z,
-        sigma_delta=sigma_delta,
-        bunch_population=bunch_population,
-        n_simulated=1e6,
+        nemitt_x=NEMITT_X,
+        nemitt_y=NEMITT_Y,
+        sigma_z=SIGMA_Z,
+        sigma_delta=SIGMA_DELTA,
+        bunch_population=BUNCH_POPULATION,
+        n_simulated=n_simulated,
         nx=3, ny=3, nz=3,
         ignored_portion=0.01,
         seed=1997,
-        method="4d",
+        method='4d',
     )
-
-    tm.initialise_touschek()
-
-    tab = line.get_table()
-    tnames = tab.rows[tab.element_type == "TouschekScattering"].name
-    assert len(tnames) > 0
-
-    for nn in tnames:
-        el = line[nn]
-        assert isinstance(el, xf.TouschekScattering)
-
-        # Config fields should be set
-        assert np.isfinite(el._p0c) and el._p0c > 0
-        assert np.isfinite(el._integrated_piwinski_rate) and el._integrated_piwinski_rate >= 0
-        assert np.isfinite(el.piwinski_rate) and el.piwinski_rate >= 0
-
-        # Acceptance should have correct sign convention
-        assert el._deltaN <= 0
-        assert el._deltaP >= 0
-
-        # Consistency
-        assert el._bunch_population == pytest.approx(bunch_population)
-        assert el._sigma_z == pytest.approx(sigma_z)
-        assert el._sigma_delta == pytest.approx(sigma_delta)
-
-        # nz may be reduced by nz_eff logic, but never increased
-        assert el._nz <= 3.0 + 1e-15
+    defaults.update(kwargs)
+    return xf.TouschekManager(line, twiss=twiss, **defaults)
 
 
-def test_touschek_scattering_scatter_returns_particles():
-    """
-    Run scatter() on one TouschekScattering element and check that:
-      - returned object is xt.Particles,
-      - some particles are selected,
-      - weights and deltas are finite,
-      - at_element points to the TouschekScattering location.
-    """
-    nemitt_x = 1e-5
-    nemitt_y = 1e-7
-    sigma_z = 4e-3
-    sigma_delta = 1e-3
-    bunch_population = 4e9
+#############################################################
+# Tests
+#############################################################
+class TestTouschekManagerInit:
+    """Unit-tests for TouschekManager constructor validation."""
 
-    _, line = _build_toy_ring_with_touschek_and_apertures()
+    def test_construction_with_normalised_emittances(self, toy_ring):
+        """Manager constructed with nemitt_x/y converts to geometric emittances."""
+        line = toy_ring['line']
+        lma  = _fresh_lma(toy_ring)
+        tw   = toy_ring['twiss']
+        tm   = _build_manager(line, lma, tw)
+        beta0  = line.particle_ref.beta0[0]
+        gamma0 = line.particle_ref.gamma0[0]
+        assert tm.gemitt_x == pytest.approx(NEMITT_X / (beta0 * gamma0))
+        assert tm.gemitt_y == pytest.approx(NEMITT_Y / (beta0 * gamma0))
 
-    df_ma = _compute_fast_lma_at_touschek_centers(line, nemitt_x=nemitt_x, nemitt_y=nemitt_y)
+    def test_construction_with_geometric_emittances(self, toy_ring):
+        """Manager constructed with gemitt_x/y stores them directly."""
+        line   = toy_ring['line']
+        lma    = _fresh_lma(toy_ring)
+        tw     = toy_ring['twiss']
+        beta0  = line.particle_ref.beta0[0]
+        gamma0 = line.particle_ref.gamma0[0]
+        gx = NEMITT_X / (beta0 * gamma0)
+        gy = NEMITT_Y / (beta0 * gamma0)
+        tm = _build_manager(line, lma, tw, gemitt_x=gx, gemitt_y=gy,
+                            nemitt_x=None, nemitt_y=None)
+        assert tm.gemitt_x == pytest.approx(gx)
+        assert tm.gemitt_y == pytest.approx(gy)
 
-    tm = xf.TouschekManager(
-        line,
-        local_momentum_acceptance=df_ma,
-        local_momentum_acceptance_scale=0.85,
-        nemitt_x=nemitt_x,
-        nemitt_y=nemitt_y,
-        sigma_z=sigma_z,
-        sigma_delta=sigma_delta,
-        bunch_population=bunch_population,
-        n_simulated=1e6,
-        nx=3, ny=3, nz=3,
-        ignored_portion=0.01,
-        seed=1997,
-        method="4d",
-    )
-    tm.initialise_touschek()
+    def test_lma_is_scaled_in_place(self, toy_ring):
+        """LMA columns must be multiplied by local_momentum_acceptance_scale."""
+        line          = toy_ring['line']
+        tw            = toy_ring['twiss']
+        lma_fresh     = _fresh_lma(toy_ring)
+        deltan_before = lma_fresh.deltan.copy()
+        deltap_before = lma_fresh.deltap.copy()
+        scale = 0.85
+        _build_manager(line, lma_fresh, tw,
+                       local_momentum_acceptance_scale=scale)
+        np.testing.assert_allclose(lma_fresh.deltan, deltan_before * scale)
+        np.testing.assert_allclose(lma_fresh.deltap, deltap_before * scale)
 
-    tab = line.get_table()
-    tnames = tab.rows[tab.element_type == "TouschekScattering"].name
-    nn = tnames[0]
-    el = line[nn]
+    def test_raises_on_missing_line(self, toy_ring):
+        with pytest.raises(ValueError, match=r'`line` is required'):
+            xf.TouschekManager(
+                line=None,
+                local_momentum_acceptance=_fresh_lma(toy_ring),
+                sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
+                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
+            )
 
-    parts = el.scatter()
-    assert isinstance(parts, xt.Particles)
-
-    # "Selected" particles are those with state==1 immediately after scatter
-    alive = parts.filter(parts.state == 1)
-    assert alive._capacity > 0
-    assert len(alive.x) > 0
-
-    # Sanity of generated coordinates and weights
-    assert np.all(np.isfinite(alive.x))
-    assert np.all(np.isfinite(alive.px))
-    assert np.all(np.isfinite(alive.y))
-    assert np.all(np.isfinite(alive.py))
-    assert np.all(np.isfinite(alive.zeta))
-    assert np.all(np.isfinite(alive.delta))
-    assert np.all(np.isfinite(alive.weight))
-    assert np.all(alive.weight >= 0)
-
-    # Particles should be located at the element index
-    expected_idx = line.element_names.index(nn)
-    assert int(alive.at_element[0]) == expected_idx
-
-    # Element should have recorded MC totals
-    assert np.isfinite(el.total_mc_rate)
-    assert el.total_mc_rate >= 0
-
-
-def test_touschek_manager_validates_local_momentum_acceptance_columns():
-    """
-    TouschekManager should reject malformed local_momentum_acceptance objects.
-    """
-    _, line = _build_toy_ring_with_touschek_and_apertures()
-
-    # Minimal fake DataFrame-like with missing columns
-    import pandas as pd
-    bad = pd.DataFrame({"s": [0.0], "deltan": [-0.01]})  # missing 'deltap'
-
-    with pytest.raises(ValueError, match=r"missing columns"):
-        xf.TouschekManager(
-            line,
-            local_momentum_acceptance=bad,
-            sigma_z=4e-3,
-            sigma_delta=1e-3,
-            bunch_population=1.0,
-            n_simulated=10,
-            nemitt_x=1e-6,
-            nemitt_y=1e-6,
-            method="4d",
+    @pytest.mark.parametrize('missing_key', [
+        'sigma_z', 'sigma_delta', 'bunch_population', 'n_simulated',
+    ])
+    def test_raises_on_missing_required_kwarg(self, toy_ring, missing_key):
+        """Each required kwarg should raise ValueError when absent."""
+        line = toy_ring['line']
+        required = dict(
+            local_momentum_acceptance=_fresh_lma(toy_ring),
+            sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
+            bunch_population=BUNCH_POPULATION, n_simulated=10,
+            nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
         )
+        kw = {k: v for k, v in required.items() if k != missing_key}
+        with pytest.raises(ValueError):
+            xf.TouschekManager(line, **kw)
+
+    def test_raises_on_both_nemitt_and_gemitt(self, toy_ring):
+        line = toy_ring['line']
+        lma  = _fresh_lma(toy_ring)
+        tw   = toy_ring['twiss']
+        with pytest.raises(ValueError, match=r'not both'):
+            _build_manager(line, lma, tw, gemitt_x=1e-9, gemitt_y=1e-11)
+
+    def test_raises_on_neither_nemitt_nor_gemitt(self, toy_ring):
+        line = toy_ring['line']
+        with pytest.raises(ValueError, match=r'must provide'):
+            xf.TouschekManager(
+                line,
+                local_momentum_acceptance=_fresh_lma(toy_ring),
+                sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
+                bunch_population=BUNCH_POPULATION, n_simulated=10,
+            )
+
+    def test_raises_on_wrong_lma_type(self, toy_ring):
+        """Non-xt.Table local_momentum_acceptance must raise TypeError."""
+        import pandas as pd
+        line = toy_ring['line']
+        bad  = pd.DataFrame({'name': ['a'], 's': [0.0],
+                             'deltan': [-0.01], 'deltap': [0.01]})
+        with pytest.raises(TypeError, match=r'xt\.Table'):
+            xf.TouschekManager(
+                line,
+                local_momentum_acceptance=bad,
+                sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
+                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
+            )
+
+    def test_raises_on_missing_lma_columns(self, toy_ring):
+        """LMA table missing required columns must raise ValueError."""
+        line = toy_ring['line']
+        lma  = toy_ring['lma']
+        # Build an xt.Table without 'deltap'
+        bad  = xt.Table({'name': lma.name, 's': lma.s, 'deltan': lma.deltan})
+        with pytest.raises(ValueError, match=r'missing columns'):
+            xf.TouschekManager(
+                line,
+                local_momentum_acceptance=bad,
+                sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
+                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
+            )
+
+    def test_raises_on_lma_nan_values(self, toy_ring):
+        """LMA table with NaN values must raise ValueError."""
+        line       = toy_ring['line']
+        lma        = toy_ring['lma']
+        deltan_bad = lma.deltan.copy().astype(float)
+        deltan_bad[0] = np.nan
+        bad = xt.Table({'name': lma.name, 's': lma.s,
+                        'deltan': deltan_bad, 'deltap': lma.deltap})
+        with pytest.raises(ValueError, match=r'NaN'):
+            xf.TouschekManager(
+                line,
+                local_momentum_acceptance=bad,
+                sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
+                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
+            )
+
+    def test_raises_when_no_touschek_elements(self, toy_ring):
+        """A line with no TouschekScattering must raise ValueError."""
+        env2 = xt.Environment()
+        bare = env2.new_line(components=[env2.new('d1', xt.Drift, length=1.0)])
+        bare.set_particle_ref('electron', p0c=1e9)
+        with pytest.raises(ValueError, match=r'TouschekScattering'):
+            xf.TouschekManager(
+                bare,
+                local_momentum_acceptance=toy_ring['lma'],
+                sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
+                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
+            )
+
+
+class TestTouschekManagerInitialise:
+    """Tests for TouschekManager.initialise_touschek()."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, toy_ring):
+        """Build a fresh manager and initialise it."""
+        self.line   = toy_ring['line']
+        self.tw     = toy_ring['twiss']
+        tab         = self.line.get_table()
+        self.tnames = tab.rows.match(element_type='TouschekScattering').name
+        lma         = _fresh_lma(toy_ring)
+        self.tm     = _build_manager(self.line, lma, self.tw)
+        self.tm.initialise_touschek()
+
+    def test_all_elements_are_configured(self):
+        assert len(self.tnames) > 0
+        for nn in self.tnames:
+            assert isinstance(self.line[nn], xf.TouschekScattering)
+
+    def test_p0c_positive_and_finite(self):
+        for nn in self.tnames:
+            el = self.line[nn]
+            assert np.isfinite(el.p0c) and el.p0c > 0
+
+    def test_integrated_piwinski_rate_nonnegative(self):
+        for nn in self.tnames:
+            el = self.line[nn]
+            assert np.isfinite(el.integrated_piwinski_rate)
+            assert el.integrated_piwinski_rate >= 0
+
+    def test_local_piwinski_rate_nonnegative(self):
+        for nn in self.tnames:
+            el = self.line[nn]
+            assert np.isfinite(el.piwinski_rate)
+            assert el.piwinski_rate >= 0
+
+    def test_lma_sign_convention(self):
+        """deltaN ≤ 0 and deltaP ≥ 0 must hold at every element."""
+        for nn in self.tnames:
+            el = self.line[nn]
+            assert el.deltaN <= 0, f'{nn}: deltaN={el.deltaN} must be ≤ 0'
+            assert el.deltaP >= 0, f'{nn}: deltaP={el.deltaP} must be ≥ 0'
+
+    def test_beam_params_stored_correctly(self):
+        for nn in self.tnames:
+            el = self.line[nn]
+            assert el.bunch_population == pytest.approx(BUNCH_POPULATION)
+            assert el.sigma_z          == pytest.approx(SIGMA_Z)
+            assert el.sigma_delta      == pytest.approx(SIGMA_DELTA)
+
+    def test_nz_not_increased_by_nz_eff_logic(self):
+        """The nz-clamp must never raise nz above the requested value of 3."""
+        for nn in self.tnames:
+            el = self.line[nn]
+            assert el.nz <= 3.0 + 1e-12, \
+                f'{nn}: nz={el.nz} exceeds requested nz=3.0'
+
+    def test_twiss_populated_after_initialise(self):
+        assert self.tm.twiss is not None
+
+    def test_partial_initialise_single_element(self):
+        """
+        Calling initialise_touschek(element=nn) should (re-)configure only
+        that element.  Doubling bunch_population must increase the rate
+        because the Piwinski rate scales as N_b^2.
+        """
+        nn       = self.tnames[0]
+        el       = self.line[nn]
+        old_rate = el.integrated_piwinski_rate
+        self.tm.bunch_population *= 2
+        self.tm.initialise_touschek(element=nn)
+        assert el.integrated_piwinski_rate > old_rate
+
+    def test_partial_initialise_raises_on_wrong_type(self):
+        with pytest.raises(TypeError, match=r'string'):
+            self.tm.initialise_touschek(element=42)
+
+
+class TestTouschekScattering:
+    """Tests for the TouschekScattering.scatter() method."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, toy_ring):
+        self.line = toy_ring['line']
+        tw        = toy_ring['twiss']
+        lma       = _fresh_lma(toy_ring)
+        tm        = _build_manager(self.line, lma, tw)
+        tm.initialise_touschek()
+
+        # Scatter from the first TouschekScattering element only (fast)
+        tab        = self.line.get_table()
+        tnames     = tab.rows.match(element_type='TouschekScattering').name
+        self.nn    = tnames[0]
+        self.el    = self.line[self.nn]
+        self.parts = self.el.scatter()
+        self.alive = self.parts.filter(self.parts.state == 1)
+
+    def test_scatter_returns_particles(self):
+        assert isinstance(self.parts, xt.Particles)
+
+    def test_some_particles_selected(self):
+        assert len(self.alive.x) > 0
+
+    def test_coordinates_finite(self):
+        for attr in ('x', 'px', 'y', 'py', 'zeta', 'delta'):
+            vals = getattr(self.alive, attr)
+            assert np.all(np.isfinite(vals)), f'Non-finite values in {attr}'
+
+    def test_weights_finite_and_nonnegative(self):
+        assert np.all(np.isfinite(self.alive.weight))
+        assert np.all(self.alive.weight >= 0)
+
+    def test_at_element_matches_line_index(self):
+        expected = self.line.element_names.index(self.nn)
+        assert int(self.alive.at_element[0]) == expected
+
+    def test_scattered_delta_outside_lma(self):
+        """
+        The C kernel selects only particles whose delta lies outside the LMA;
+        every returned particle must satisfy delta < deltaN or delta > deltaP.
+        """
+        d       = self.alive.delta
+        outside = (d < self.el.deltaN) | (d > self.el.deltaP)
+        assert np.all(outside), 'Some scattered particles have delta inside the LMA'
+
+    def test_total_mc_rate_recorded(self):
+        assert np.isfinite(self.el.total_mc_rate)
+        assert self.el.total_mc_rate >= 0
+
+    def test_ignored_rate_fraction(self):
+        """ignored_rate must equal ignored_portion * total_mc_rate."""
+        assert self.el.ignored_rate == pytest.approx(
+            self.el.ignored_portion * self.el.total_mc_rate, rel=1e-9)
+
+    def test_theta_log_populated(self):
+        """theta_log must map particle IDs → scattering angles in (0, π)."""
+        assert isinstance(self.el.theta_log, dict)
+        assert len(self.el.theta_log) > 0
+        for pid, theta in self.el.theta_log.items():
+            assert np.isfinite(theta)
+            assert 0 < theta < np.pi, f'theta={theta} out of (0, π)'
+
+    def test_weight_sum_is_finite_and_positive(self):
+        assert np.isfinite(self.alive.weight.sum())
+        assert self.alive.weight.sum() > 0
+
+
+class TestPiwinskiIntegral:
+    """
+    Unit tests for TouschekCalculator._compute_piwinski_integral.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, toy_ring):
+        lma        = _fresh_lma(toy_ring)
+        tm         = _build_manager(toy_ring['line'], lma, toy_ring['twiss'])
+        self.calc  = tm.touschek
+
+    def test_integral_positive(self):
+        val = self.calc._compute_piwinski_integral(0.01, B1=5.0, B2=3.0)
+        assert val > 0
+
+    def test_integral_decreases_with_larger_tm(self):
+        """A larger momentum cut-off (larger tm) must give a smaller integral."""
+        B1, B2 = 5.0, 3.0
+        assert (self.calc._compute_piwinski_integral(0.001, B1, B2) >
+                self.calc._compute_piwinski_integral(0.10,  B1, B2))
+
+    def test_integral_decreases_with_larger_B1(self):
+        """Larger B1 (tighter beam) must suppress the integral."""
+        tm, B2 = 0.01, 2.0
+        assert (self.calc._compute_piwinski_integral(tm, B1= 3.0, B2=B2) >
+                self.calc._compute_piwinski_integral(tm, B1=10.0, B2=B2))
+
+    def test_integral_finite_for_large_B2_t(self):
+        """The asymptotic I0 branch (B2*t > 500) must return a finite positive value."""
+        val = self.calc._compute_piwinski_integral(0.001, B1=600.0, B2=599.0)
+        assert np.isfinite(val) and val > 0
+
+
+class TestEndToEndLifetime:
+    """
+    Minimal end-to-end smoke test: scatter, track, merge, lifetime.
+    Verifies that the result is a physically plausible positive finite number.
+    """
+
+    def test_lifetime_positive_finite(self, toy_ring):
+        line = toy_ring['line']
+        tw   = toy_ring['twiss']
+        lma  = _fresh_lma(toy_ring)
+
+        tm = _build_manager(line, lma, tw, n_simulated=int(2e5))
+        tm.initialise_touschek()
+
+        tab    = line.get_table()
+        tnames = tab.rows.match(element_type='TouschekScattering').name
+
+        particles_list = []
+        for nn in tnames:
+            parts = line[nn].scatter()
+            line.track(parts, ele_start=nn, ele_stop=nn, num_turns=128)
+            particles_list.append(parts)
+
+        merged    = xt.Particles.merge(particles_list)
+        lost      = merged.filter(merged.state == 0)
+        loss_rate = float(sum(lost.weight))
+
+        assert loss_rate > 0, 'No particles were lost — something is wrong'
+
+        lifetime = BUNCH_POPULATION / loss_rate
+        assert np.isfinite(lifetime) and lifetime > 0
