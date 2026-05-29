@@ -17,8 +17,7 @@ class TouschekScattering(xt.BeamElement):
     6D phase-space (Gaussian) distribution, applies the Møller cross-section,
     boosts scattered pairs back to the lab frame, and returns the subset of
     macro-particles whose momentum deviation exceeds the local momentum
-    acceptance (LMA).  Those particles are subsequently tracked around the
-    ring to determine where they are lost.
+    acceptance (LMA).
 
     The element is *passive* during normal tracking (``track`` is a no-op);
     all physics happens inside :meth:`scatter`.
@@ -31,50 +30,44 @@ class TouschekScattering(xt.BeamElement):
     s : float, optional
         Longitudinal position of the element in the lattice [m].  Default 0.
     particle_ref : xtrack.Particles, optional
-        Reference particle carrying ``p0c``, ``mass0``, ``q0``, ``pdg_id``.
-        Defaults to an empty ``xt.Particles()`` object.
+        Reference particle carrying.
     element_index : int, optional
-        Index of this element in ``line.element_names``; used to set
-        ``particles.at_element`` after scattering so that tracking starts
-        from the correct location.  Default 0.
+        Index of this element in the line.
     bunch_population : float, optional
-        Number of real particles in one bunch.  Default 0.
+        Number of particles in one bunch.
     alfx, betx : float, optional
-        Horizontal Twiss parameters at the element.  Default 0.
+        Horizontal Twiss parameters at the element.
     alfy, bety : float, optional
-        Vertical Twiss parameters at the element.  Default 0.
+        Vertical Twiss parameters at the element.
     dx, dpx : float, optional
-        Horizontal dispersion and its derivative at the element [m, 1].
-        Default 0.
+        Horizontal dispersion and its derivative at the element.
     dy, dpy : float, optional
-        Vertical dispersion and its derivative at the element [m, 1].
-        Default 0.
+        Vertical dispersion and its derivative at the element.
     x_co, px_co : float, optional
         Horizontal closed-orbit position and normalised momentum at the
-        element.  Default 0.
+        element.
     y_co, py_co : float, optional
-        Vertical closed-orbit position and normalised momentum.  Default 0.
+        Vertical closed-orbit position and normalised momentum at the 
+        element.
     zeta_co, delta_co : float, optional
-        Longitudinal closed-orbit co-ordinate and relative momentum
-        deviation.  Default 0.
+        Longitudinal closed-orbit coordinate and relative momentum
+        deviation.
     deltaN : float, optional
-        Negative local momentum acceptance (scaled).  Default 0.
+        Negative local momentum acceptance (scaled).
     deltaP : float, optional
-        Positive local momentum acceptance (scaled).  Default 0.
+        Positive local momentum acceptance (scaled).
     gemitt_x : float, optional
         Horizontal geometric emittance [m·rad].
-        Default 0.
     gemitt_y : float, optional
         Vertical geometric emittance [m·rad].
-        Default 0.
     sigma_z : float, optional
-        RMS bunch length [m].  Default 0.
+        RMS bunch length [m].
     sigma_delta : float, optional
-        RMS relative momentum spread.  Default 0.
+        RMS relative momentum spread.
     n_simulated : int, optional
         Number of macro-particles (scattered candidates) to generate in the
         Monte Carlo loop.  Larger values reduce statistical noise but
-        increase CPU time.  Default 0.
+        increase CPU time.
     nx, ny, nz : float, optional
         Truncation of the Gaussian distribution in units of
         :math:`\\sqrt{\\varepsilon}` for the transverse planes and
@@ -82,35 +75,36 @@ class TouschekScattering(xt.BeamElement):
         :math:`\\pm n_x \\sqrt{\\varepsilon_x}`, etc.  ``nz`` may be
         reduced automatically by :class:`TouschekManager` to prevent
         particles being drawn outside the LMA before scattering.
-        Default 0.
     theta_min, theta_max : float, optional
         Lower and upper limits of the centre-of-mass scattering angle
         :math:`\\theta^*` [rad].  In practice set to
         :math:`0.00005\\pi` and :math:`0.99995\\pi` to avoid the
         forward/backward divergence of the Møller cross-section.
-        Default 0.
     piwinski_rate : float, optional
         Local Piwinski scattering rate [Hz] evaluated at this element.
         Stored for diagnostics; not used in the Monte Carlo kernel.
-        Default 0.
     ignored_portion : float, optional
-        Fraction of the total scattered weight that can be discarded by the
-        ``pickPart`` routine to remove pathologically high-weight
-        macro-particles.  ``0`` keeps all particles; ``0.01`` (the typical
-        value) discards up to 1 % of the total weight.  Default 0.
+        Fraction of the total simulated scattering weight that is discarded
+        before tracking.  Only the highest-weight particles whose cumulative
+        weight reaches ``(1 - ignored_portion)`` of the total are retained
+        and tracked; the remaining low-weight, low-probability events are
+        dropped.  The default value of ``0.01`` retains 99 % of the total
+        weight while significantly reducing the number of particles that must
+        be tracked, providing a good accuracy–efficiency trade-off.
+        Setting this to ``0`` keeps all simulated particles.
     integrated_piwinski_rate : float, optional
         Piwinski rate integrated (trapezoidal rule) over the lattice section
         preceding this element and divided by :math:`c` and
         :math:`T_{\\text{rev}}` to give a per-bunch, per-turn rate [1/s].
         Set by :meth:`TouschekManager.initialise_touschek`; used to weight
-        the scattered macro-particles.  Default 0.
+        the scattered macro-particles.
     seed : int, optional
         Seed for the ELEGANT-compatible 48-bit LCG random number generator.
         Using the same seed reproduces the ELEGANT Monte Carlo sequence
         exactly.  Default 1997.
     inhibit_permute : int, optional
         If non-zero, the random-order permutation step (``randomizeOrder``)
-        is skipped.  Intended for reproducibility testing only.  Default 0.
+        is skipped.  Intended for reproducibility testing only.
 
     Attributes
     ----------
@@ -120,8 +114,10 @@ class TouschekScattering(xt.BeamElement):
         Total Monte Carlo scattering rate [Hz] returned by the last call to
         :meth:`scatter`.
     ignored_rate : float
-        Rate [Hz] associated with the macro-particles discarded by
-        ``pickPart`` in the last call to :meth:`scatter`.
+        Scattering rate [Hz] associated with the low-weight particles
+        discarded by ``pickPart`` in the last call to :meth:`scatter`,
+        i.e. the fraction ``ignored_portion`` of ``total_mc_rate`` that
+        is not represented in the tracked particle set.
     theta_log : dict
         Mapping ``{particle_id: theta}`` of centre-of-mass scattering
         angles [rad] for the particles returned by the last call to
@@ -148,36 +144,24 @@ class TouschekScattering(xt.BeamElement):
     6. A particle is selected for tracking only if its resulting
        :math:`\\delta` falls outside the LMA:
        :math:`\\delta < \\delta_N` or :math:`\\delta > \\delta_P`.
-    7. ``pickPart`` removes the highest-weight fraction
-       ``ignored_portion`` of candidates to suppress divergent
-       low-angle events.
+    7. ``pickPart`` retains only the highest-weight particles whose
+        cumulative weight reaches ``(1 - ignored_portion)`` of the
+        total simulated weight.  The remaining low-weight,
+        low-probability events are discarded.  With the default
+        ``ignored_portion = 0.01``, 99 % of the total weight is
+        retained, significantly reducing the number of particles
+        that must be tracked.
 
     Macro-particle weights are normalised so that
     :math:`\\sum_i w_i` equals the per-turn loss rate in the
     corresponding lattice section (in particles/turn).
-
-    **Closed-orbit shift**
-
-    After scattering, the coordinate offset due to the closed orbit is
-    added back:
-
-    **Longitudinal cutoff reduction** (``nz_eff``)
-
-    :class:`TouschekManager` may reduce ``nz`` to
-    :math:`\\min(n_z,\\; 0.85 \\cdot \\min(|\\delta_N|, \\delta_P) / \\sigma_\\delta)`
-    to prevent sampling initial particles whose :math:`|\\delta|` already
-    exceeds the LMA before scattering.  Such particles receive artificially
-    large weights (Møller diverges at :math:`\\theta^* \\to 0`) and distort
-    the lifetime estimate.
 
     References
     ----------
     .. [1] A. Xiao and M. Borland, "Monte Carlo simulation of Touschek
        effect", Phys. Rev. ST Accel. Beams **13**, 074201 (2010).
        https://doi.org/10.1103/PhysRevSTAB.13.074201
-    .. [2] A. Piwinski, "The Touschek Effect in Strong Focusing Storage
-       Rings", arXiv:physics/9903034 (1999).
-    .. [3] M. Borland, "elegant: A Flexible SDDS-Compliant Code for
+    .. [2] M. Borland, "elegant: A Flexible SDDS-Compliant Code for
        Accelerator Simulation", APS LS-287 (2000).
     """
 

@@ -27,6 +27,12 @@
  *  - Minor safety/cleanup (bounds checks, allocations, comments).
  *  - Physics and selection logic preserved.
  *
+  *  References
+ *  ----------
+ *  - M. Borland, “elegant: A Flexible SDDS-Compliant Code for Accelerator Simulation,”
+ *    APS LS-287 (2000).
+ *  - A. Xiao and M. Borland, "Monte Carlo simulation of Touschek effect",
+ *    Phys. Rev. ST Accel. Beams **13**, 074201 (2010).
  */
 #ifndef XTRACK_TOUSCHEK_H
 #define XTRACK_TOUSCHEK_H
