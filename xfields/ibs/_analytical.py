@@ -351,10 +351,10 @@ class AnalyticalIBS(ABC):
         # and can be skewed by some very high peaks in the optics
         with warnings.catch_warnings():  # Catch and ignore the scipy.integrate.IntegrationWarning
             warnings.simplefilter("ignore", category=UserWarning)
-            _bx_bar = quad(_bxb, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.circumference
-            _by_bar = quad(_byb, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.circumference
-            _dx_bar = quad(_dxb, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.circumference
-            _dy_bar = quad(_dyb, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.circumference
+            _bx_bar = quad(_bxb, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.line_length
+            _by_bar = quad(_byb, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.line_length
+            _dx_bar = quad(_dxb, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.line_length
+            _dy_bar = quad(_dyb, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.line_length
         # ----------------------------------------------------------------------------------------------
         # Calculate transverse temperature as 2*P*X, i.e. assume the transverse energy is temperature/2
         # We need the total energy and the particle mass in GeV hence the 1e-9 below
@@ -373,7 +373,7 @@ class AnalyticalIBS(ABC):
         if bunched is True:  # bunched beam
             volume = 8.0 * np.sqrt(np.pi**3) * sigma_x_cm * sigma_y_cm * sigma_t_cm
         else:  # coasting beam
-            volume = 4.0 * np.pi * sigma_x_cm * sigma_y_cm * 100 * self._twiss.circumference
+            volume = 4.0 * np.pi * sigma_x_cm * sigma_y_cm * 100 * self._twiss.line_length
         density = total_beam_intensity / volume
         debye_length = 743.4 * np.sqrt(TempeV / density) / abs(self._particle.q0)
         # ----------------------------------------------------------------------------------------------
@@ -610,9 +610,9 @@ class NagaitsevIBS(AnalyticalIBS):
         Sxp: ArrayLike = 3 * self._twiss.gamma0**2 * phix**2 * ax * (R3 - R2) / sqrt_term
         # ----------------------------------------------------------------------------------------------
         # These are the integrands of the integrals in Eq (30-32) in Nagaitsev paper
-        Ix_integrand = self._twiss.betx / (self._twiss.circumference * sigx * sigy) * (Sx + Sp * (self._twiss.dx**2 / self._twiss.betx**2 + phix**2) + Sxp)
-        Iy_integrand = self._twiss.bety / (self._twiss.circumference * sigx * sigy) * (R2 + R3 - 2 * R1)
-        Iz_integrand = Sp / (self._twiss.circumference * sigx * sigy)
+        Ix_integrand = self._twiss.betx / (self._twiss.line_length * sigx * sigy) * (Sx + Sp * (self._twiss.dx**2 / self._twiss.betx**2 + phix**2) + Sxp)
+        Iy_integrand = self._twiss.bety / (self._twiss.line_length * sigx * sigy) * (R2 + R3 - 2 * R1)
+        Iz_integrand = Sp / (self._twiss.line_length * sigx * sigy)
         # fmt: on
         # ----------------------------------------------------------------------------------------------
         # Integrating the integrands above accross the ring to get the desired results
@@ -739,7 +739,7 @@ class NagaitsevIBS(AnalyticalIBS):
                 "Using 'bunched=False' in this formalism makes the approximation of bunch length = C/(2*pi). "
                 "Please use the Bjorken-Mtingwa formalism for a correct handling of Dy."
             )
-            bunch_length: float = self._twiss.circumference / (2 * np.pi)
+            bunch_length: float = self._twiss.line_length / (2 * np.pi)
         # ----------------------------------------------------------------------------------------------
         # Ensure we update the integrals have been computed beforehand
         _ = self.integrals(gemitt_x=gemitt_x, gemitt_y=gemitt_y, sigma_delta=sigma_delta)
@@ -869,7 +869,7 @@ class BjorkenMtingwaIBS(AnalyticalIBS):
                 * gemitt_x
                 * gemitt_y
                 * sigma_delta
-                * self._twiss.circumference
+                * self._twiss.line_length
             )
 
     def _a(self, gemitt_x: float, gemitt_y: float, sigma_delta: float) -> ArrayLike:
@@ -1666,9 +1666,9 @@ class BjorkenMtingwaIBS(AnalyticalIBS):
         LOGGER.debug("Getting average growth rates over the lattice")
         with warnings.catch_warnings():  # Catch and ignore the scipy.integrate.IntegrationWarning
             warnings.simplefilter("ignore", category=UserWarning)
-            Kx: float = float(quad(_kx, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.circumference)
-            Ky: float = float(quad(_ky, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.circumference)
-            Kz: float = float(quad(_kz, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.circumference)
+            Kx: float = float(quad(_kx, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.line_length)
+            Ky: float = float(quad(_ky, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.line_length)
+            Kz: float = float(quad(_kz, self._twiss.s[0], self._twiss.s[-1])[0] / self._twiss.line_length)
         emittance_rates = IBSEmittanceGrowthRates(Kx, Ky, Kz)
         # ----------------------------------------------------------------------------------------------
         # Important: the calculations of B&M yield emittance growth rates (this is what one gets in MAD-X

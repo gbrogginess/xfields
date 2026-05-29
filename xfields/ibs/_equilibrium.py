@@ -432,7 +432,7 @@ def get_ibs_and_synrad_emittance_evolution(
     # Initialize values for the iterative process (first time step is revolution period)
     iterations: float = 0
     tolerance: float = np.inf
-    time_step: float = twiss.T_rev0
+    time_step: float = twiss.t_rev0
     # Structures for iterative results (time, IBS growth rates, computed emittances)
     time_deltas: list[float] = []  # stores the deltas (!), we do a cumsum at the end
     K_x: list[float] = []

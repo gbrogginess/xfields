@@ -560,6 +560,27 @@ class TriLinearInterpolatedFieldMap(xo.HybridClass):
         return self._z_grid
 
     @property
+    def x_min(self):
+        """
+        Minimum horizontal grid coordinate in meters.
+        """
+        return self._x_min
+
+    @property
+    def y_min(self):
+        """
+        Minimum vertical grid coordinate in meters.
+        """
+        return self._y_min
+
+    @property
+    def z_min(self):
+        """
+        Minimum longitudinal grid coordinate in meters.
+        """
+        return self._z_min
+
+    @property
     def nx(self):
         """
         Number of cells in the horizontal direction.
@@ -660,5 +681,4 @@ def _configure_grid(vname, v_grid, dv, v_range, nv):
             v_grid = np.linspace(v_range[0], v_range[1], nv)
 
     return v_grid
-
 
