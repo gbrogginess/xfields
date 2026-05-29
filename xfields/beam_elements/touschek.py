@@ -368,7 +368,7 @@ class TouschekScattering(xt.BeamElement):
                             y=y_out[:n], py=py_out[:n],
                             zeta=zeta_out[:n], delta=delta_out[:n],
                             weight=weight_out[:n],
-                            s=getattr(self, '_s', 0.0))
+                            s=getattr(self, 's', 0.0))
         
         # Shift Touschek scattered particles around the closed orbit
         part.x[:n] += self.x_co

@@ -189,7 +189,7 @@ for ii, element in enumerate(touschek_elements):
     particles = line[element].scatter()
 
     # Track
-    print(f"\nTracking particles scattered at {element} (s = {s_start_elem:.4f} m)")
+    print(f"\nTracking particles scattered at {element} (s = {s_start_elem:.2f} m)")
     line.track(particles, ele_start=element, ele_stop=element, num_turns=nturns, with_progress=1)
 
     particles_list.append(particles)
@@ -200,9 +200,9 @@ particles = xt.Particles.merge(particles_list)
 # Optional: Refine loss location to improve loss map accuracy
 loss_loc_refinement = xt.LossLocationRefinement(line,
     n_theta = 360, # Angular resolution in the polygonal approximation of the aperture
-    r_max = 0.5, # Maximum transverse aperture in m
-    dr = 50e-6, # Transverse loss refinement accuracy [m]
-    ds = 0.1, # Longitudinal loss refinement accuracy [m]
+    r_max = 0.5,   # Maximum transverse aperture in m
+    dr = 50e-6,    # Transverse loss refinement accuracy [m]
+    ds = 0.1,      # Longitudinal loss refinement accuracy [m]
     )
 
 loss_loc_refinement.refine_loss_location(particles)
