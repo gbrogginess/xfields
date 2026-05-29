@@ -249,7 +249,7 @@ class TouschekCalculator:
 
         line = self.manager.line
         tab = line.get_table()
-        T_rev0 = float(self.twiss.T_rev0)
+        t_rev0 = float(self.twiss.t_rev0)
 
         # Indexes of the TouschekScatterings
         ii_t = [ii for ii, nn in enumerate(tab.name[:-1]) if isinstance(line[nn], xf.TouschekScattering)]
@@ -276,8 +276,8 @@ class TouschekCalculator:
                 s_before, rate_before, integrated = _step(nn, s_before, rate_before, integrated)
 
                 if ii == ii_t[ii_current]:
-                    # divide by c and by T_rev0 --> per-bunch rate
-                    integrated_piwinski_rate = integrated / C_LIGHT_VACUUM / T_rev0
+                    # divide by c and by t_rev0 --> per-bunch rate
+                    integrated_piwinski_rate = integrated / C_LIGHT_VACUUM / t_rev0
                     elem = line[nn] # xf.TouschekScattering
                     # print(f'Integrated Piwinski rate at {nn}: {integrated_piwinski_rate*1e-3} [kHz]')
                     elem._configure(integrated_piwinski_rate=integrated_piwinski_rate)
@@ -292,8 +292,8 @@ class TouschekCalculator:
                 s_before, rate_before, integrated = _step(nn, s_before, rate_before, integrated)
 
                 if nn == element:
-                    # divide by c and by T_rev0 --> per-bunch rate
-                    integrated_piwinski_rate = integrated / C_LIGHT_VACUUM / T_rev0
+                    # divide by c and by t_rev0 --> per-bunch rate
+                    integrated_piwinski_rate = integrated / C_LIGHT_VACUUM / t_rev0
                     elem = line[nn] # xf.TouschekScattering
                     # print(f'Integrated Piwinski rate at {nn}: {integrated_piwinski_rate*1e-3} [kHz]')
                     elem._configure(integrated_piwinski_rate=integrated_piwinski_rate)
