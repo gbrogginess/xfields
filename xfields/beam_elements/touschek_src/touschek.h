@@ -46,8 +46,6 @@
 #include <stdint.h>
 #include <string.h>
 
-static inline double sqr(double x){ return x*x; }
-
 /*gpufun*/
 void TouschekScattering_track_local_particle(TouschekScatteringData el, LocalParticle* part0) {
   (void)el; (void)part0;
@@ -115,8 +113,8 @@ void bunch2cm(double *p1, double *p2, double *q, double *beta, double *gamma) {
   pp1 = 0.0;
   pp2 = 0.0;
   for (i = 3; i < 6; i++) {
-    pp1 = pp1 + sqr(p1[i]);
-    pp2 = pp2 + sqr(p2[i]);
+    pp1 = pp1 + POW2(p1[i]);
+    pp2 = pp2 + POW2(p2[i]);
   }
   e1 = sqrt(ELECTRON_MASS_EV * ELECTRON_MASS_EV + pp1);
   e2 = sqrt(ELECTRON_MASS_EV * ELECTRON_MASS_EV + pp2);
@@ -201,9 +199,9 @@ double moeller(double beta0, double theta) {
   double beta2, st2;
 
   beta2 = beta0 * beta0;
-  st2 = sqr(sin(theta));
+  st2 = POW2(sin(theta));
 
-  cross = (1. - beta2) * (sqr(1. + 1. / beta2) * (4. / st2 / st2 - 3. / st2) + 1. + 4. / st2);
+  cross = (1. - beta2) * (POW2(1. + 1. / beta2) * (4. / st2 / st2 - 3. / st2) + 1. + 4. / st2);
 
   return cross;
 }
@@ -338,7 +336,7 @@ void TouschekScatter(TouschekScatteringData el,
     double weight_limit, weight_ave, wTotal;
 
     const double sigxyz = sqrt(twissBeta[0]*gemitt[0]) * sqrt(twissBeta[1]*gemitt[1]) * sigma_z;
-    temp = sqr(bunch_population) * sqr(PI) * sqr(RADIUS_ELECTRON) * C_LIGHT / 4.;
+    temp = POW2(bunch_population) * POW2(PI) * POW2(RADIUS_ELECTRON) * C_LIGHT / 4.;
     double factor = temp * pow(range[0], 3.0) * pow(range[1], 3.0) * pow(range[2], 3.0) / pow(2 * PI, 6.0) / sigxyz;
 
     double *xtemp      = (double*)malloc(sizeof(double) * n_simulated);
@@ -402,8 +400,8 @@ void TouschekScatter(TouschekScatteringData el,
         // p1[5] = (p1[5] + 1) * p0c;
         // p2[5] = (p2[5] + 1) * p0c;
         // Use exact formula to compute p1[5]=Pz1 and p2[5]=Pz2
-        p1[5] = sqrt(sqr(p0c)*sqr(1. + p1[5]) - sqr(p1[3]) - sqr(p1[4]));
-        p2[5] = sqrt(sqr(p0c)*sqr(1. + p2[5]) - sqr(p2[3]) - sqr(p2[4]));
+        p1[5] = sqrt(POW2(p0c)*POW2(1. + p1[5]) - POW2(p1[3]) - POW2(p1[4]));
+        p2[5] = sqrt(POW2(p0c)*POW2(1. + p2[5]) - POW2(p2[3]) - POW2(p2[4]));
 
         bunch2cm(p1, p2, qa, beta, &gamma);
 
@@ -416,8 +414,8 @@ void TouschekScatter(TouschekScatteringData el,
         // p1[5] = (p1[5] - p0c) / p0c;
         // p2[5] = (p2[5] - p0c) / p0c;
         // Use exact formula to compute p1[5]=delta1 and p2[5]=delta2
-        p1[5] = (sqrt(sqr(p1[3]) + sqr(p1[4]) + sqr(p1[5])) - p0c) / p0c;
-        p2[5] = (sqrt(sqr(p2[3]) + sqr(p2[4]) + sqr(p2[5])) - p0c) / p0c;
+        p1[5] = (sqrt(POW2(p1[3]) + POW2(p1[4]) + POW2(p1[5])) - p0c) / p0c;
+        p2[5] = (sqrt(POW2(p2[3]) + POW2(p2[4]) + POW2(p2[5])) - p0c) / p0c;
 
         if (p1[5] > p2[5]) {
           for (j = 0; j < 6; j++) {
