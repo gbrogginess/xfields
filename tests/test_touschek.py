@@ -155,7 +155,7 @@ def _fresh_lma(toy_ring_data):
         'deltap': lma.deltap.copy(),
     })
 
-def _build_study(line, lma, twiss=None, *, n_simulated=int(1e6), **kwargs):
+def _build_study(line, lma, twiss=None, *, n_scattering_events=int(1e6), **kwargs):
     """
     Convenience factory for TouschekStudy with sensible test defaults.
     """
@@ -167,7 +167,7 @@ def _build_study(line, lma, twiss=None, *, n_simulated=int(1e6), **kwargs):
         sigma_z=SIGMA_Z,
         sigma_delta=SIGMA_DELTA,
         bunch_population=BUNCH_POPULATION,
-        n_simulated=n_simulated,
+        n_scattering_events=n_scattering_events,
         nx=3, ny=3, nz=3,
         weight_retention_fraction=0.99,
         seed=1997,
@@ -227,7 +227,7 @@ class TestTouschekStudyInit:
                 line=None,
                 local_momentum_acceptance=_fresh_lma(toy_ring),
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
@@ -241,12 +241,12 @@ class TestTouschekStudyInit:
                 line,
                 local_momentum_acceptance=_fresh_lma(toy_ring),
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
     @pytest.mark.parametrize('missing_key', [
-        'sigma_z', 'sigma_delta', 'bunch_population', 'n_simulated',
+        'sigma_z', 'sigma_delta', 'bunch_population', 'n_scattering_events',
     ])
     def test_raises_on_missing_required_kwarg(self, toy_ring, missing_key):
         """Each required kwarg should raise ValueError when absent."""
@@ -254,12 +254,24 @@ class TestTouschekStudyInit:
         required = dict(
             local_momentum_acceptance=_fresh_lma(toy_ring),
             sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-            bunch_population=BUNCH_POPULATION, n_simulated=10,
+            bunch_population=BUNCH_POPULATION, n_scattering_events=10,
             nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
         )
         kw = {k: v for k, v in required.items() if k != missing_key}
         with pytest.raises(ValueError):
             xf.TouschekStudy(line, **kw)
+
+    def test_accepts_deprecated_n_simulated_alias(self, toy_ring):
+        line = toy_ring['line']
+        with pytest.warns(FutureWarning, match='n_simulated'):
+            study = xf.TouschekStudy(
+                line,
+                local_momentum_acceptance=_fresh_lma(toy_ring),
+                sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
+                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
+            )
+        assert study.n_scattering_events == 10
 
     def test_raises_on_both_nemitt_and_gemitt(self, toy_ring):
         line = toy_ring['line']
@@ -275,7 +287,7 @@ class TestTouschekStudyInit:
                 line,
                 local_momentum_acceptance=_fresh_lma(toy_ring),
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
             )
 
     def test_raises_on_wrong_lma_type(self, toy_ring):
@@ -289,7 +301,7 @@ class TestTouschekStudyInit:
                 line,
                 local_momentum_acceptance=bad,
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
@@ -304,7 +316,7 @@ class TestTouschekStudyInit:
                 line,
                 local_momentum_acceptance=bad,
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
@@ -321,7 +333,7 @@ class TestTouschekStudyInit:
                 line,
                 local_momentum_acceptance=bad,
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
@@ -335,7 +347,7 @@ class TestTouschekStudyInit:
                 bare,
                 local_momentum_acceptance=toy_ring['lma'],
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
@@ -535,7 +547,7 @@ class TestEndToEndLifetime:
         tw   = toy_ring['twiss']
         lma  = _fresh_lma(toy_ring)
 
-        study = _build_study(line, lma, tw, n_simulated=int(2e5))
+        study = _build_study(line, lma, tw, n_scattering_events=int(2e5))
         study.initialise_touschek()
         _build_tracker_or_skip(line, test_context)
         result = study.run(track=True, n_turns=128)

@@ -13,7 +13,8 @@ from scipy.special import i0
 from scipy.constants import physical_constants
 
 from ..beam_elements.touschek import (
-    TouschekScattering, _resolve_weight_retention_fraction)
+    TouschekScattering, _resolve_weight_retention_fraction,
+    _resolve_n_scattering_events)
 
 ELECTRON_MASS_EV = xt.ELECTRON_MASS_EV
 C_LIGHT_VACUUM = physical_constants['speed of light in vacuum'][0]
@@ -94,10 +95,10 @@ class TouschekStudy:
         RMS relative momentum spread :math:`\\sigma_\\delta`.
     bunch_population : float
         Number of real particles per bunch, :math:`N_b`.
-    n_simulated : int
-        Number of scattered macro-particle candidates to generate per
-        scattering element.  Larger values improve statistics at the cost
-        of CPU time.  Values of :math:`10^6`–:math:`10^7` are typical.
+    n_scattering_events : int
+        Number of Touschek scattering events to generate per scattering
+        element. Larger values improve statistics at the cost of CPU time.
+        Values of :math:`10^6`–:math:`10^7` are typical.
     nx : float, optional
         Truncation of the transverse-horizontal Gaussian sampling window in
         units of :math:`\\sqrt{\\varepsilon_x}`.  Default 3.
@@ -153,8 +154,8 @@ class TouschekStudy:
         Bunch length [m] and momentum spread.
     bunch_population : float
         Bunch population :math:`N_b`.
-    n_simulated : int
-        Number of simulated scattered candidates per element.
+    n_scattering_events : int
+        Number of Touschek scattering events generated per element.
     nx, ny, nz : float
         Phase-space sampling truncation parameters.
     seed : int
@@ -171,7 +172,8 @@ class TouschekStudy:
                  local_momentum_acceptance=None,
                  nemitt_x=None, nemitt_y=None,
                  sigma_z=None, sigma_delta=None, bunch_population=None,
-                 n_simulated=None, gemitt_x=None, gemitt_y=None,
+                 n_scattering_events=None, n_simulated=None,
+                 gemitt_x=None, gemitt_y=None,
                  local_momentum_acceptance_scale=0.85,
                  weight_retention_fraction=None, ignored_portion=None,
                  seed=1997, nx=3, ny=3, nz=3, **kwargs):
@@ -189,8 +191,8 @@ class TouschekStudy:
             raise ValueError("`sigma_delta` is required.")
         if bunch_population is None:
             raise ValueError("`bunch_population` is required.")
-        if n_simulated is None:
-            raise ValueError("`n_simulated` is required.")
+        if n_scattering_events is None and n_simulated is None:
+            raise ValueError("`n_scattering_events` is required.")
 
         # Local momentum acceptnace validation
         required_cols = {"name", "s", "deltan", "deltap"}
@@ -262,7 +264,10 @@ class TouschekStudy:
         self.sigma_z = sigma_z
         self.sigma_delta = sigma_delta
         self.bunch_population = bunch_population
-        self.n_simulated = n_simulated
+        self.n_scattering_events = _resolve_n_scattering_events(
+            n_scattering_events=n_scattering_events,
+            n_simulated=n_simulated,
+            default=None)
         self.weight_retention_fraction = _resolve_weight_retention_fraction(
             weight_retention_fraction=weight_retention_fraction,
             ignored_portion=ignored_portion,
@@ -654,7 +659,7 @@ class TouschekStudy:
                 deltaN=dN, deltaP=dP,
                 sigma_z=self.sigma_z,
                 sigma_delta=self.sigma_delta,
-                n_simulated=self.n_simulated,
+                n_scattering_events=self.n_scattering_events,
                 nx=self.nx, ny=self.ny, nz=nz_eff,
                 theta_min=self._theta_min, theta_max=self._theta_max,
                 weight_retention_fraction=self.weight_retention_fraction,

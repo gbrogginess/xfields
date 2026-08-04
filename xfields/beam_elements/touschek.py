@@ -32,6 +32,32 @@ def _resolve_weight_retention_fraction(
 
     return float(weight_retention_fraction)
 
+
+def _resolve_n_scattering_events(
+        *, n_scattering_events, n_simulated, default):
+    if n_simulated is not None:
+        if n_scattering_events is not None:
+            raise ValueError(
+                "Provide either `n_scattering_events` or `n_simulated`, "
+                "not both.")
+        warnings.warn(
+            "`n_simulated` is deprecated. Use `n_scattering_events` instead.",
+            FutureWarning,
+            stacklevel=2)
+        n_scattering_events = n_simulated
+
+    if n_scattering_events is None:
+        n_scattering_events = default
+
+    if n_scattering_events is None:
+        raise ValueError("`n_scattering_events` is required.")
+
+    if n_scattering_events < 0:
+        raise ValueError("`n_scattering_events` must be non-negative.")
+
+    return int(n_scattering_events)
+
+
 class TouschekScattering(xt.BeamElement):
     """
     Beam element that performs a Monte Carlo Touschek scattering simulation
@@ -89,10 +115,9 @@ class TouschekScattering(xt.BeamElement):
         RMS bunch length [m].
     sigma_delta : float, optional
         RMS relative momentum spread.
-    n_simulated : int, optional
-        Number of macro-particles (scattered candidates) to generate in the
-        Monte Carlo loop.  Larger values reduce statistical noise but
-        increase CPU time.
+    n_scattering_events : int, optional
+        Number of Touschek scattering events to generate in the Monte Carlo
+        loop. Larger values reduce statistical noise but increase CPU time.
     nx, ny, nz : float, optional
         Truncation of the Gaussian distribution in units of
         :math:`\\sqrt{\\varepsilon}` for the transverse planes and
@@ -251,7 +276,8 @@ class TouschekScattering(xt.BeamElement):
                 deltaN=0.0, deltaP=0.0,
                 gemitt_x=0.0, gemitt_y=0.0,
                 sigma_z=0.0, sigma_delta=0.0,
-                n_simulated=0, nx=0.0, ny=0.0, nz=0.0,
+                n_scattering_events=None, n_simulated=None,
+                nx=0.0, ny=0.0, nz=0.0,
                 theta_min=0.0, theta_max=0.0,
                 piwinski_rate=0.0,
                 weight_retention_fraction=None,
@@ -295,7 +321,10 @@ class TouschekScattering(xt.BeamElement):
         self.gemitt_y = gemitt_y
         self.sigma_z = sigma_z
         self.sigma_delta = sigma_delta
-        self.n_simulated = n_simulated
+        self.n_scattering_events = _resolve_n_scattering_events(
+            n_scattering_events=n_scattering_events,
+            n_simulated=n_simulated,
+            default=0)
         self.nx = nx
         self.ny = ny
         self.nz = nz
@@ -321,6 +350,16 @@ class TouschekScattering(xt.BeamElement):
                 "`weight_retention_fraction` must be in the interval (0, 1].")
         self.ignored_portion = 1.0 - float(value)
 
+    @property
+    def n_scattering_events(self):
+        return self.n_simulated
+
+    @n_scattering_events.setter
+    def n_scattering_events(self, value):
+        if value < 0:
+            raise ValueError("`n_scattering_events` must be non-negative.")
+        self.n_simulated = int(value)
+
     def _configure(self, **kwargs):
         config_allowed = {
             "s", "particle_ref", "element_index",
@@ -332,7 +371,7 @@ class TouschekScattering(xt.BeamElement):
             "zeta_co", "delta_co",
             "deltaN", "deltaP",
             "sigma_z", "sigma_delta",
-            "n_simulated", "nx", "ny", "nz",
+            "n_scattering_events", "n_simulated", "nx", "ny", "nz",
             "theta_min", "theta_max",
             "weight_retention_fraction", "ignored_portion", "piwinski_rate",
             "integrated_piwinski_rate",
@@ -353,6 +392,14 @@ class TouschekScattering(xt.BeamElement):
                 weight_retention_fraction=weight_retention_fraction,
                 ignored_portion=ignored_portion,
                 default=self.weight_retention_fraction)
+
+        n_simulated = kwargs.pop("n_simulated", None)
+        n_scattering_events = kwargs.pop("n_scattering_events", None)
+        if n_simulated is not None or n_scattering_events is not None:
+            self.n_scattering_events = _resolve_n_scattering_events(
+                n_scattering_events=n_scattering_events,
+                n_simulated=n_simulated,
+                default=self.n_scattering_events)
 
         for kk, vv in kwargs.items():
             setattr(self, kk, vv)

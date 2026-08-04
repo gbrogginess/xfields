@@ -144,7 +144,7 @@ plt.show()
 ######################################################
 # Parameters
 local_momentum_acceptance_scale = 0.85 # scaling factor for local momentum acceptance
-n_simulated = 5e6 # number of simulated scattering events with delta > delta_min
+n_scattering_events = int(5e6) # number of simulated scattering events with delta > delta_min
 nturns = 1000 # number of turns to simulate
 
 touschek = xf.TouschekStudy(
@@ -156,7 +156,7 @@ touschek = xf.TouschekStudy(
     sigma_z=sigma_z,
     sigma_delta=sigma_delta,
     bunch_population=bunch_population,
-    n_simulated=n_simulated,
+    n_scattering_events=n_scattering_events,
     nx=3, ny=3, nz=3,
     weight_retention_fraction=0.99,
     seed=1997,

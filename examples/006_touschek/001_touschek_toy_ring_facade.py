@@ -133,7 +133,7 @@ plt.show()
 # Touschek simulation with the line.xfields facade
 ######################################################
 local_momentum_acceptance_scale = 0.85
-n_simulated = 5e6
+n_scattering_events = int(5e6)
 nturns = 1000
 
 line.discard_tracker()
@@ -147,7 +147,7 @@ touschek = line.xfields.touschek_configure(
     sigma_z=sigma_z,
     sigma_delta=sigma_delta,
     bunch_population=bunch_population,
-    n_simulated=n_simulated,
+    n_scattering_events=n_scattering_events,
     nx=3, ny=3, nz=3,
     weight_retention_fraction=0.99,
     seed=1997,
