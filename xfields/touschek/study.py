@@ -73,8 +73,8 @@ class TouschekStudy:
         argument (default ``"6d"``).
     local_momentum_acceptance : xtrack.Table
         Table returned by ``line.get_local_momentum_acceptance()``.  Must
-        contain the columns ``name``, ``s``, ``deltan`` (negative LMA,
-        :math:`\\delta_N < 0`), and ``deltap`` (positive LMA,
+        contain the columns ``name``, ``s``, ``delta_neg`` (negative LMA,
+        :math:`\\delta_N < 0`), and ``delta_pos`` (positive LMA,
         :math:`\\delta_P > 0`).  Values are scaled in-place by
         ``local_momentum_acceptance_scale`` upon construction.
     nemitt_x : float, optional
@@ -196,14 +196,14 @@ class TouschekStudy:
             raise ValueError("`n_scattering_events` is required.")
 
         # Local momentum acceptnace validation
-        required_cols = {"name", "s", "deltan", "deltap"}
+        required_cols = {"name", "s", "delta_neg", "delta_pos"}
         if not isinstance(local_momentum_acceptance, xt.Table):
             raise TypeError("`local_momentum_acceptance` must be an `xt.Table` object.")
         missing = required_cols - set(local_momentum_acceptance._col_names)
         if missing:
             raise ValueError(f"`local_momentum_acceptance` missing columns: {sorted(missing)}")
 
-        for col in ("s", "deltan", "deltap"):
+        for col in ("s", "delta_neg", "delta_pos"):
             try:
                 vals = np.asarray(local_momentum_acceptance[col], dtype=float)
             except Exception:
@@ -258,8 +258,8 @@ class TouschekStudy:
         self.elements = elements
 
         # Local momentum acceptance
-        local_momentum_acceptance.deltan *= local_momentum_acceptance_scale
-        local_momentum_acceptance.deltap *= local_momentum_acceptance_scale
+        local_momentum_acceptance.delta_neg *= local_momentum_acceptance_scale
+        local_momentum_acceptance.delta_pos *= local_momentum_acceptance_scale
         self.local_momentum_acceptance = local_momentum_acceptance
 
         self.sigma_z = sigma_z
@@ -378,10 +378,10 @@ class TouschekStudy:
         except Exception:
             s = self.line.get_s_position(element)
 
-        deltaN = np.interp(
-            s, local_momentum_acceptance.s, local_momentum_acceptance.deltan)
-        deltaP = np.interp(
-            s, local_momentum_acceptance.s, local_momentum_acceptance.deltap)
+        delta_neg = np.interp(
+            s, local_momentum_acceptance.s, local_momentum_acceptance.delta_neg)
+        delta_pos = np.interp(
+            s, local_momentum_acceptance.s, local_momentum_acceptance.delta_pos)
 
         sigmab_x = np.sqrt(gemitt_x * betx) # Horizontal betatron beam size
         sigma_x = np.sqrt(gemitt_x * betx + dx**2 * sigma_delta**2)
@@ -414,11 +414,13 @@ class TouschekStudy:
             * (sigma_x**2 * sigma_y**2 - sigma_delta**4 * dx**2 * dy**2)
         )
 
-        tmN = beta**2 * (deltaN**2)
-        tmP = beta**2 * (deltaP**2)
+        tau_neg = beta**2 * (delta_neg**2)
+        tau_pos = beta**2 * (delta_pos**2)
 
-        piwinski_integralN = self._compute_piwinski_integral(tmN, B1, B2)
-        piwinski_integralP = self._compute_piwinski_integral(tmP, B1, B2)
+        piwinski_integral_neg = self._compute_piwinski_integral(
+            tau_neg, B1, B2)
+        piwinski_integral_pos = self._compute_piwinski_integral(
+            tau_pos, B1, B2)
 
         # Factor 2 comes from the t = tan(k)^2 substitution used in
         # _compute_piwinski_integral; the manual formula is written directly in t.
@@ -429,7 +431,7 @@ class TouschekStudy:
                * np.sqrt(sigma_x**2 * sigma_y**2
                          - sigma_delta**4 * dx**2 * dy**2))
             * 2 * np.sqrt(np.pi * (B1**2 - B2**2))
-            * piwinski_integralN
+            * piwinski_integral_neg
         )
 
         rateP = (
@@ -439,7 +441,7 @@ class TouschekStudy:
                * np.sqrt(sigma_x**2 * sigma_y**2
                          - sigma_delta**4 * dx**2 * dy**2))
             * 2 * np.sqrt(np.pi * (B1**2 - B2**2))
-            * piwinski_integralP
+            * piwinski_integral_pos
         )
 
         return (rateN + rateP) / 2
@@ -581,8 +583,12 @@ class TouschekStudy:
             alfy = twiss["alfy", nn]; bety = twiss["bety", nn]
             dx   = twiss["dx",   nn]; dpx = twiss["dpx",  nn]
             dy   = twiss["dy",   nn]; dpy = twiss["dpy",  nn]
-            dN = np.interp(s, local_momentum_acceptance.s, local_momentum_acceptance.deltan)
-            dP = np.interp(s, local_momentum_acceptance.s, local_momentum_acceptance.deltap)
+            delta_neg = np.interp(
+                s, local_momentum_acceptance.s,
+                local_momentum_acceptance.delta_neg)
+            delta_pos = np.interp(
+                s, local_momentum_acceptance.s,
+                local_momentum_acceptance.delta_pos)
 
             x_co = twiss["x", nn]; px_co = twiss["px", nn]
             y_co = twiss["y", nn]; py_co = twiss["py", nn]
@@ -615,20 +621,22 @@ class TouschekStudy:
             # To eliminate these spurious contributions, we dynamically reduce
             # the longitudinal cutoff at each TouschekScattering element:
             #
-            #     nz_eff = min(nz, 0.85 * min(|δN|, δP) / σδ)
+            #     nz_eff = min(nz, 0.85 * min(|delta_neg|, delta_pos) / σδ)
             #
-            # where δN, δP are the negative/positive momentum aperture limits
-            # (scaled by local_momentum_acceptance_scale). This ensures that the sampled
-            # longitudinal range ±nz_eff*σδ always lies strictly inside the local
-            # momentum aperture, with a small safety factor (0.85). As a result,
-            # only pathological large-weight events are avoided, and the Monte Carlo
-            # rate remains consistent with the Piwinski formula.
+            # where delta_neg and delta_pos are the negative/positive momentum
+            # aperture limits (scaled by local_momentum_acceptance_scale). This
+            # ensures that the sampled longitudinal range ±nz_eff*σδ always lies
+            # strictly inside the local momentum aperture, with a small safety
+            # factor (0.85). As a result, only pathological large-weight events
+            # are avoided, and the Monte Carlo rate remains consistent with the
+            # Piwinski formula.
             #
             # NOTE: nz_eff is determined independently at each scattering element,
             # so tighter cutoffs are applied only where the local momentum aperture
             # is restrictive, while wider cutoffs are retained elsewhere.
-            min_dNdP = min(abs(dN), dP)
-            nz_eff = min(self.nz, 0.85 * min_dNdP / self.sigma_delta)
+            min_delta_acceptance = min(abs(delta_neg), delta_pos)
+            nz_eff = min(
+                self.nz, 0.85 * min_delta_acceptance / self.sigma_delta)
 
             if nz_eff < self.nz:
                 print(f"""
@@ -659,7 +667,7 @@ class TouschekStudy:
                 x_co=x_co, px_co=px_co,
                 y_co=y_co, py_co=py_co,
                 zeta_co=zeta_co, delta_co=delta_co,
-                deltaN=dN, deltaP=dP,
+                delta_neg=delta_neg, delta_pos=delta_pos,
                 sigma_z=self.sigma_z,
                 sigma_delta=self.sigma_delta,
                 n_scattering_events=self.n_scattering_events,
@@ -696,8 +704,8 @@ class TouschekStudy:
         data = {
             "name": [],
             "s": [],
-            "deltaN": [],
-            "deltaP": [],
+            "delta_neg": [],
+            "delta_pos": [],
             "piwinski_rate": [],
             "integrated_piwinski_rate": [],
             "total_mc_rate": [],
@@ -717,8 +725,8 @@ class TouschekStudy:
             else:
                 s = tab["s", nn]
             data["s"].append(float(s))
-            data["deltaN"].append(float(getattr(elem, "deltaN", np.nan)))
-            data["deltaP"].append(float(getattr(elem, "deltaP", np.nan)))
+            data["delta_neg"].append(float(getattr(elem, "delta_neg", np.nan)))
+            data["delta_pos"].append(float(getattr(elem, "delta_pos", np.nan)))
             data["piwinski_rate"].append(
                 float(getattr(elem, "piwinski_rate", np.nan)))
             data["integrated_piwinski_rate"].append(

@@ -121,8 +121,8 @@ lma = line.get_local_momentum_acceptance(
     method='4d',
 )
 
-plt.plot(lma.s, lma.deltan*100, c='r')
-plt.plot(lma.s, lma.deltap*100, c='r')
+plt.plot(lma.s, lma.delta_neg*100, c='r')
+plt.plot(lma.s, lma.delta_pos*100, c='r')
 plt.title('Toy ring: local momentum acceptance profile')
 plt.xlabel('s [m]')
 plt.ylabel(r'$\delta$ [%]')

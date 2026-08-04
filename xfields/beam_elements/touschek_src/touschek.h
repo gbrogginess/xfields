@@ -296,8 +296,8 @@ void TouschekScatter(TouschekScatteringData el,
     const double dpx   = TouschekScatteringData_get_dpx(el);
     const double dy    = TouschekScatteringData_get_dy(el);
     const double dpy   = TouschekScatteringData_get_dpy(el);
-    const double deltaN = TouschekScatteringData_get_deltaN(el);
-    const double deltaP = TouschekScatteringData_get_deltaP(el);
+    const double delta_neg = TouschekScatteringData_get_delta_neg(el);
+    const double delta_pos = TouschekScatteringData_get_delta_pos(el);
     const double sigma_z   = TouschekScatteringData_get_sigma_z(el);
     const double sigma_delta = TouschekScatteringData_get_sigma_delta(el);
     const double n_simulated = TouschekScatteringData_get_n_simulated(el);
@@ -425,12 +425,12 @@ void TouschekScatter(TouschekScatteringData el,
           }
         }
 
-        if (p1[5] < deltaN || p2[5] > deltaP) {
+        if (p1[5] < delta_neg || p2[5] > delta_pos) {
           beta0 = qabs / sqrt(qabs * qabs + ELECTRON_MASS_EV * ELECTRON_MASS_EV);
           cross = moeller(beta0, theta);
           temp *= cross * beta0 / gamma / gamma;
 
-          if (p1[5] < deltaN) {
+          if (p1[5] < delta_neg) {
             totalWeight += temp;
             p1[3] /= p0c;
             p1[4] /= p0c;
@@ -450,7 +450,7 @@ void TouschekScatter(TouschekScatteringData el,
           if (i >= n_simulated)
             break;
 
-          if (p2[5] > deltaP) {
+          if (p2[5] > delta_pos) {
             totalWeight += temp;
             p2[3] /= p0c;
             p2[4] /= p0c;

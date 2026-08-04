@@ -116,9 +116,9 @@ class TouschekScattering(xt.BeamElement):
     zeta_co, delta_co : float, optional
         Longitudinal closed-orbit coordinate and relative momentum
         deviation.
-    deltaN : float, optional
+    delta_neg : float, optional
         Negative local momentum acceptance (scaled).
-    deltaP : float, optional
+    delta_pos : float, optional
         Positive local momentum acceptance (scaled).
     gemitt_x : float, optional
         Horizontal geometric emittance [m·rad].
@@ -237,8 +237,8 @@ class TouschekScattering(xt.BeamElement):
         'dpx': xo.Float64,
         'dy': xo.Float64,
         'dpy': xo.Float64,
-        'deltaN': xo.Float64,
-        'deltaP': xo.Float64,
+        'delta_neg': xo.Float64,
+        'delta_pos': xo.Float64,
         'sigma_z': xo.Float64,
         'sigma_delta': xo.Float64,
         'n_simulated': xo.Int64,
@@ -286,7 +286,7 @@ class TouschekScattering(xt.BeamElement):
                 dx=0.0, dpx=0.0, dy=0.0, dpy=0.0,
                 x_co=0.0, px_co=0.0, y_co=0.0, py_co=0.0,
                 zeta_co=0.0, delta_co=0.0,
-                deltaN=0.0, deltaP=0.0,
+                delta_neg=0.0, delta_pos=0.0,
                 gemitt_x=0.0, gemitt_y=0.0,
                 sigma_z=0.0, sigma_delta=0.0,
                 n_scattering_events=None, n_simulated=None,
@@ -330,8 +330,8 @@ class TouschekScattering(xt.BeamElement):
         self.py_co = py_co
         self.zeta_co = zeta_co
         self.delta_co = delta_co
-        self.deltaN = deltaN
-        self.deltaP = deltaP
+        self.delta_neg = delta_neg
+        self.delta_pos = delta_pos
         self.gemitt_x = gemitt_x
         self.gemitt_y = gemitt_y
         self.sigma_z = sigma_z
@@ -384,7 +384,7 @@ class TouschekScattering(xt.BeamElement):
             "dx", "dpx", "dy", "dpy",
             "x_co", "px_co", "y_co", "py_co",
             "zeta_co", "delta_co",
-            "deltaN", "deltaP",
+            "delta_neg", "delta_pos",
             "sigma_z", "sigma_delta",
             "n_scattering_events", "n_simulated", "nx", "ny", "nz",
             "theta_min", "theta_max",

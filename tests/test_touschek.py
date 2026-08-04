@@ -151,8 +151,8 @@ def _fresh_lma(toy_ring_data):
     return xt.Table({
         'name':   lma.name.copy(),
         's':      lma.s.copy(),
-        'deltan': lma.deltan.copy(),
-        'deltap': lma.deltap.copy(),
+        'delta_neg': lma.delta_neg.copy(),
+        'delta_pos': lma.delta_pos.copy(),
     })
 
 def _build_study(line, lma, twiss=None, *, n_scattering_events=int(1e6), **kwargs):
@@ -213,13 +213,13 @@ class TestTouschekStudyInit:
         line          = toy_ring['line']
         tw            = toy_ring['twiss']
         lma_fresh     = _fresh_lma(toy_ring)
-        deltan_before = lma_fresh.deltan.copy()
-        deltap_before = lma_fresh.deltap.copy()
+        delta_neg_before = lma_fresh.delta_neg.copy()
+        delta_pos_before = lma_fresh.delta_pos.copy()
         scale = 0.85
         _build_study(line, lma_fresh, tw,
                        local_momentum_acceptance_scale=scale)
-        np.testing.assert_allclose(lma_fresh.deltan, deltan_before * scale)
-        np.testing.assert_allclose(lma_fresh.deltap, deltap_before * scale)
+        np.testing.assert_allclose(lma_fresh.delta_neg, delta_neg_before * scale)
+        np.testing.assert_allclose(lma_fresh.delta_pos, delta_pos_before * scale)
 
     def test_raises_on_missing_line(self, toy_ring):
         with pytest.raises(ValueError, match=r'`line` is required'):
@@ -295,7 +295,7 @@ class TestTouschekStudyInit:
         import pandas as pd
         line = toy_ring['line']
         bad  = pd.DataFrame({'name': ['a'], 's': [0.0],
-                             'deltan': [-0.01], 'deltap': [0.01]})
+                             'delta_neg': [-0.01], 'delta_pos': [0.01]})
         with pytest.raises(TypeError, match=r'xt\.Table'):
             xf.TouschekStudy(
                 line,
@@ -309,8 +309,8 @@ class TestTouschekStudyInit:
         """LMA table missing required columns must raise ValueError."""
         line = toy_ring['line']
         lma  = toy_ring['lma']
-        # Build an xt.Table without 'deltap'
-        bad  = xt.Table({'name': lma.name, 's': lma.s, 'deltan': lma.deltan})
+        # Build an xt.Table without 'delta_pos'
+        bad  = xt.Table({'name': lma.name, 's': lma.s, 'delta_neg': lma.delta_neg})
         with pytest.raises(ValueError, match=r'missing columns'):
             xf.TouschekStudy(
                 line,
@@ -324,10 +324,10 @@ class TestTouschekStudyInit:
         """LMA table with NaN values must raise ValueError."""
         line       = toy_ring['line']
         lma        = toy_ring['lma']
-        deltan_bad = lma.deltan.copy().astype(float)
-        deltan_bad[0] = np.nan
+        delta_neg_bad = lma.delta_neg.copy().astype(float)
+        delta_neg_bad[0] = np.nan
         bad = xt.Table({'name': lma.name, 's': lma.s,
-                        'deltan': deltan_bad, 'deltap': lma.deltap})
+                        'delta_neg': delta_neg_bad, 'delta_pos': lma.delta_pos})
         with pytest.raises(ValueError, match=r'NaN'):
             xf.TouschekStudy(
                 line,
@@ -389,11 +389,11 @@ class TestTouschekStudyInitialise:
             assert el.piwinski_rate >= 0
 
     def test_lma_sign_convention(self):
-        """deltaN ≤ 0 and deltaP ≥ 0 must hold at every element."""
+        """delta_neg ≤ 0 and delta_pos ≥ 0 must hold at every element."""
         for nn in self.tnames:
             el = self.line[nn]
-            assert el.deltaN <= 0, f'{nn}: deltaN={el.deltaN} must be ≤ 0'
-            assert el.deltaP >= 0, f'{nn}: deltaP={el.deltaP} must be ≥ 0'
+            assert el.delta_neg <= 0, f'{nn}: delta_neg={el.delta_neg} must be ≤ 0'
+            assert el.delta_pos >= 0, f'{nn}: delta_pos={el.delta_pos} must be ≥ 0'
 
     def test_beam_params_stored_correctly(self):
         for nn in self.tnames:
@@ -471,10 +471,10 @@ class TestTouschekScattering:
     def test_scattered_delta_outside_lma(self):
         """
         The C kernel selects only particles whose delta lies outside the LMA;
-        every returned particle must satisfy delta < deltaN or delta > deltaP.
+        every returned particle must satisfy delta < delta_neg or delta > delta_pos.
         """
         d       = self.alive.delta
-        outside = (d < self.el.deltaN) | (d > self.el.deltaP)
+        outside = (d < self.el.delta_neg) | (d > self.el.delta_pos)
         assert np.all(outside), 'Some scattered particles have delta inside the LMA'
 
     def test_total_mc_rate_recorded(self):
