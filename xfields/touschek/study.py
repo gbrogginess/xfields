@@ -3,38 +3,120 @@
 # Copyright (c) CERN, 2021.                   #
 # ########################################### #
 
+from dataclasses import dataclass
+
 import xtrack as xt
-import xfields as xf
 
 import numpy as np
-import pandas as pd
 from scipy.integrate import quad
 from scipy.special import i0
 from scipy.constants import physical_constants
 
+from ..beam_elements.touschek import TouschekScattering
+
 ELECTRON_MASS_EV = xt.ELECTRON_MASS_EV
 C_LIGHT_VACUUM = physical_constants['speed of light in vacuum'][0]
 CLASSICAL_ELECTRON_RADIUS = physical_constants['classical electron radius'][0]
+
+
+@dataclass
+class TouschekResult:
+    """
+    Result returned by :meth:`TouschekStudy.run`.
+
+    Parameters are stored as public attributes to keep the relevant
+    intermediate information from the Touschek workflow available to users.
+    """
+    study: "TouschekStudy"
+    elements: list
+    local_momentum_acceptance: xt.Table
+    local_rates: xt.Table
+    scattering_rate: float
+    loss_rate: float | None
+    lifetime: float | None
+    particles_by_element: dict
+    particles: xt.Particles | None
+    lost_particles: xt.Particles | None
+    tracked: bool
+
+
+def _touschek_local_rates(*, line, elements, particles_by_element=None):
+    data = {
+        "name": [],
+        "s": [],
+        "deltaN": [],
+        "deltaP": [],
+        "piwinski_rate": [],
+        "integrated_piwinski_rate": [],
+        "total_mc_rate": [],
+        "ignored_rate": [],
+        "num_particles": [],
+        "num_lost_particles": [],
+        "sum_weight": [],
+        "sum_lost_weight": [],
+    }
+
+    tab = line.get_table()
+    for nn in elements:
+        elem = line[nn]
+        data["name"].append(nn)
+        if hasattr(elem, "s"):
+            s = elem.s
+        else:
+            s = tab["s", nn]
+        data["s"].append(float(s))
+        data["deltaN"].append(float(getattr(elem, "deltaN", np.nan)))
+        data["deltaP"].append(float(getattr(elem, "deltaP", np.nan)))
+        data["piwinski_rate"].append(
+            float(getattr(elem, "piwinski_rate", np.nan)))
+        data["integrated_piwinski_rate"].append(
+            float(getattr(elem, "integrated_piwinski_rate", np.nan)))
+        data["total_mc_rate"].append(
+            float(getattr(elem, "total_mc_rate", np.nan)))
+        data["ignored_rate"].append(
+            float(getattr(elem, "ignored_rate", np.nan)))
+
+        particles = None
+        if particles_by_element is not None:
+            particles = particles_by_element.get(nn)
+
+        if particles is None:
+            data["num_particles"].append(0)
+            data["num_lost_particles"].append(0)
+            data["sum_weight"].append(np.nan)
+            data["sum_lost_weight"].append(np.nan)
+        else:
+            lost = particles.filter(particles.state == 0)
+            data["num_particles"].append(len(particles.x))
+            data["num_lost_particles"].append(len(lost.x))
+            data["sum_weight"].append(float(np.sum(particles.weight)))
+            data["sum_lost_weight"].append(float(np.sum(lost.weight)))
+
+    for kk, vv in data.items():
+        data[kk] = np.array(vv)
+
+    return xt.Table(data)
+
 
 class TouschekCalculator:
     '''
     Internal helper that evaluates Piwinski scattering rates and integrates
     them along the lattice.
 
-    This class is instantiated and owned by :class:`TouschekManager`; it
+    This class is instantiated and owned by :class:`TouschekStudy`; it
     should not be constructed directly by users.
 
     Parameters
     ----------
-    manager : TouschekManager
-        The owning manager, from which beam parameters, optics, and the
+    study : TouschekStudy
+        The owning study, from which beam parameters, optics, and the
         local momentum acceptance table are read.
 
     Attributes
     ----------
     twiss : xtrack.TwissTable or None
         Twiss table for the ring.  Injected by
-        :meth:`TouschekManager.initialise_touschek` before any rate
+        :meth:`TouschekStudy.initialise_touschek` before any rate
         evaluation is performed.
 
     References
@@ -47,13 +129,18 @@ class TouschekCalculator:
     .. [3] M. Borland, "elegant: A Flexible SDDS-Compliant Code for
        Accelerator Simulation", APS LS-287 (2000).
     '''
-    def __init__(self, manager):
-        self.manager = manager
+    def __init__(self, study):
+        self.study = study
         self.twiss = None
 
     def _compute_piwinski_integral(self, tm, B1, B2):
         """
         Compute Piwinski integral for Touschek scattering rate calculation.
+
+        The integration variable is k, with t = tan(k)^2. The direct Piwinski
+        formula is written as an integral over t from tm to infinity; this
+        substitution gives dt = 2*tan(k)*(1 + tan(k)^2) dk and leaves the
+        integrand below with an overall factor 2 applied in the rate formula.
         """
         from math import atan, tan, sqrt, exp, log, pi
 
@@ -90,18 +177,18 @@ class TouschekCalculator:
         """
         Compute Piwinski Touschek scattering rate.
         """
-        p0c = self.manager.particle_ref.p0c[0]
-        bunch_population = self.manager.bunch_population
-        local_momentum_acceptance = self.manager.local_momentum_acceptance
-        gemitt_x = self.manager.gemitt_x
-        gemitt_y = self.manager.gemitt_y
+        p0c = self.study.particle_ref.p0c[0]
+        bunch_population = self.study.bunch_population
+        local_momentum_acceptance = self.study.local_momentum_acceptance
+        gemitt_x = self.study.gemitt_x
+        gemitt_y = self.study.gemitt_y
         twiss = self.twiss
         alfx = twiss['alfx', element]
         betx = twiss['betx', element]
         alfy = twiss['alfy', element]
         bety = twiss['bety', element]
-        sigma_z = self.manager.sigma_z
-        sigma_delta = self.manager.sigma_delta
+        sigma_z = self.study.sigma_z
+        sigma_delta = self.study.sigma_delta
         delta = twiss['delta', element]
         dx = twiss['dx', element]
         dpx = twiss['dpx', element]
@@ -113,7 +200,7 @@ class TouschekCalculator:
         try:
             s = self.twiss.rows[element].s[0]
         except:
-            s = self.manager.line.get_s_position(element)
+            s = self.study.line.get_s_position(element)
 
         deltaN = np.interp(s, local_momentum_acceptance.s, local_momentum_acceptance.deltan)
         deltaP = np.interp(s, local_momentum_acceptance.s, local_momentum_acceptance.deltap)
@@ -142,6 +229,8 @@ class TouschekCalculator:
         piwinski_integralN = self._compute_piwinski_integral(tmN, B1, B2)
         piwinski_integralP = self._compute_piwinski_integral(tmP, B1, B2)
 
+        # Factor 2 comes from the t = tan(k)^2 substitution used in
+        # _compute_piwinski_integral; the manual formula is written directly in t.
         rateN = CLASSICAL_ELECTRON_RADIUS**2 * C_LIGHT_VACUUM * bunch_population**2 \
                 / (8*np.pi * gamma**2 * sigma_z * np.sqrt(sigma_x**2 * sigma_y**2 - sigma_delta**4 * dx**2 * dy**2)) \
                 * 2 * np.sqrt(np.pi * (B1**2 - B2**2)) * piwinski_integralN
@@ -168,7 +257,7 @@ class TouschekCalculator:
             try:
                 return tab.rows[name].s[0]
             except (KeyError, AttributeError, IndexError, TypeError):
-                return self.manager.line.get_s_position(name)
+                return self.study.line.get_s_position(name)
             
         def _step(name, s_before, rate_before, integrated):
             s = _get_s(name)
@@ -180,12 +269,15 @@ class TouschekCalculator:
             else:
                 return s_before, rate_before, integrated
 
-        line = self.manager.line
+        line = self.study.line
         tab = line.get_table()
-        t_rev0 = float(self.twiss.t_rev0)
+        line_length = float(self.twiss.line_length)
 
         # Indexes of the TouschekScatterings
-        ii_t = [ii for ii, nn in enumerate(tab.name[:-1]) if isinstance(line[nn], xf.TouschekScattering)]
+        ii_t = [
+            ii for ii, nn in enumerate(tab.name[:-1])
+            if isinstance(line[nn], TouschekScattering)
+        ]
 
         integrated = 0.0
 
@@ -209,9 +301,10 @@ class TouschekCalculator:
                 s_before, rate_before, integrated = _step(nn, s_before, rate_before, integrated)
 
                 if ii == ii_t[ii_current]:
-                    # divide by c and by t_rev0 --> per-bunch rate
-                    integrated_piwinski_rate = integrated / C_LIGHT_VACUUM / t_rev0
-                    elem = line[nn] # xf.TouschekScattering
+                    # Divide by the circumference to get the section contribution
+                    # to the ring-averaged per-bunch rate.
+                    integrated_piwinski_rate = integrated / line_length
+                    elem = line[nn] # TouschekScattering
                     # print(f'Integrated Piwinski rate at {nn}: {integrated_piwinski_rate*1e-3} [kHz]')
                     elem._configure(integrated_piwinski_rate=integrated_piwinski_rate)
                     integrated = 0.0
@@ -225,19 +318,20 @@ class TouschekCalculator:
                 s_before, rate_before, integrated = _step(nn, s_before, rate_before, integrated)
 
                 if nn == element:
-                    # divide by c and by t_rev0 --> per-bunch rate
-                    integrated_piwinski_rate = integrated / C_LIGHT_VACUUM / t_rev0
-                    elem = line[nn] # xf.TouschekScattering
+                    # Divide by the circumference to get the section contribution
+                    # to the ring-averaged per-bunch rate.
+                    integrated_piwinski_rate = integrated / line_length
+                    elem = line[nn] # TouschekScattering
                     # print(f'Integrated Piwinski rate at {nn}: {integrated_piwinski_rate*1e-3} [kHz]')
                     elem._configure(integrated_piwinski_rate=integrated_piwinski_rate)
                     break
 
 
-class TouschekManager:
+class TouschekStudy:
     '''
-    High-level manager that orchestrates a full Touschek scattering simulation.
+    Configured Touschek study attached to an xtrack Line.
 
-    The manager:
+    The study:
 
     1. Computes the Piwinski scattering rate at every
        :class:`TouschekScattering` element in the line using the local beam
@@ -254,6 +348,10 @@ class TouschekManager:
     line : xtrack.Line
         The accelerator lattice.  Must contain at least one
         :class:`TouschekScattering` element and a ``particle_ref``.
+    elements : list or str or None, optional
+        Touschek scattering elements to include in ``local_rates()``,
+        ``generate_particles()``, and ``run()``. If ``None`` all
+        :class:`TouschekScattering` elements in the line are included.
     twiss : xtrack.TwissTable or None, optional
         Pre-computed Twiss table.  If ``None``, it is computed internally
         by :meth:`initialise_touschek` using the ``method`` keyword
@@ -326,6 +424,8 @@ class TouschekManager:
         The accelerator lattice passed at construction.
     particle_ref : xtrack.Particles
         Reference particle extracted from ``line.particle_ref``.
+    elements : list
+        Names of Touschek scattering elements included in this study.
     twiss : xtrack.TwissTable or None
         Twiss table (populated by :meth:`initialise_touschek` if not
         provided at construction).
@@ -355,7 +455,8 @@ class TouschekManager:
     .. [2] M. Borland, "elegant: A Flexible SDDS-Compliant Code for
        Accelerator Simulation", APS LS-287 (2000).
     '''
-    def __init__(self, line=None, twiss=None, local_momentum_acceptance=None,
+    def __init__(self, line=None, elements=None, twiss=None,
+                 local_momentum_acceptance=None,
                  nemitt_x=None, nemitt_y=None,
                  sigma_z=None, sigma_delta=None, bunch_population=None,
                  n_simulated=None, gemitt_x=None, gemitt_y=None,
@@ -365,7 +466,7 @@ class TouschekManager:
         # Input validation
         if line is None:
             raise ValueError("`line` is required.")
-        if not hasattr(line, "particle_ref"):
+        if getattr(line, "particle_ref", None) is None:
             raise ValueError("`line` must have a `particle_ref`.")
         if local_momentum_acceptance is None:
             raise ValueError("`local_momentum_acceptance` is required.")
@@ -412,7 +513,33 @@ class TouschekManager:
             has = "TouschekScattering" in set(getattr(tab, "element_type", []))
         if not has:
             raise ValueError("The line does not contain any TouschekScattering. "
-                             "Please add them before initializing the TouschekManager.")
+                             "Please add them before initializing the TouschekStudy.")
+
+        if elements is None:
+            elements = [
+                nn for nn in tab.name[:-1]
+                if isinstance(line[nn], TouschekScattering)
+            ]
+        elif isinstance(elements, str):
+            elements = [elements]
+        else:
+            elements = list(elements)
+
+        if len(elements) == 0:
+            raise ValueError(
+                "No TouschekScattering elements selected for this study."
+            )
+
+        for nn in elements:
+            if nn not in line.element_names:
+                raise ValueError(f"Element '{nn}' is not present in the line.")
+            if not isinstance(line[nn], TouschekScattering):
+                raise TypeError(
+                    f"Element '{nn}' is not a TouschekScattering "
+                    f"(got {type(line[nn]).__name__})."
+                )
+
+        self.elements = elements
 
         # Local momentum acceptance
         local_momentum_acceptance.deltan *= local_momentum_acceptance_scale
@@ -562,7 +689,7 @@ class TouschekManager:
             if nz_eff < self.nz:
                 print(f"""
             ***********************************************************************************************
-            [TouschekManager] Warning: longitudinal cutoff reduced at element '{nn}' (s={s:.2f} m).
+            [TouschekStudy] Warning: longitudinal cutoff reduced at element '{nn}' (s={s:.2f} m).
 
             Using nz_eff={nz_eff:.2f} instead of nz={self.nz:.2f}.
             This ensures that particles are sampled strictly within the local momentum aperture.
@@ -571,7 +698,7 @@ class TouschekManager:
 
             piwinski_rate = self.touschek._compute_piwinski_scattering_rate(nn)
 
-            elem = line[nn] # xf.TouschekScattering
+            elem = line[nn] # TouschekScattering
             element_index = line.element_names.index(nn)
 
             elem._configure(
@@ -601,7 +728,7 @@ class TouschekManager:
 
         if element is None:
             for nn in tab.name[:-1]: # Avoid the last tab.name which is _end_point
-                if isinstance(line[nn], xf.TouschekScattering):
+                if isinstance(line[nn], TouschekScattering):
                     print(f'Initialising TouschekScattering for {nn}')
                     _config(nn)
         else:
@@ -609,11 +736,111 @@ class TouschekManager:
                 raise TypeError(f"`element` must be a string (got {type(element).__name__}).")
             if element not in set(tab.name):
                 raise ValueError(
-                    f"`element='{element}'` is not present in the line provided to the TouschekManager."
+                    f"`element='{element}'` is not present in the line provided to the TouschekStudy."
                 )
-            if not isinstance(line[element], xf.TouschekScattering):
+            if not isinstance(line[element], TouschekScattering):
                 raise TypeError(
                     f"`line['{element}']` is not a TouschekScattering (got {type(line[element]).__name__})."
                 )
             print(f'Initialising TouschekScattering for {element}')
             _config(element)
+
+    def local_rates(self, *, particles_by_element=None):
+        """
+        Return an ``xt.Table`` with per-scattering-element diagnostics.
+        """
+        return _touschek_local_rates(
+            line=self.line,
+            elements=self.elements,
+            particles_by_element=particles_by_element,
+        )
+
+    def generate_particles(self):
+        """
+        Generate Touschek-scattered particles at the configured elements.
+
+        Returns
+        -------
+        particles_by_element : dict
+            Mapping ``{element_name: xt.Particles}``.
+        """
+        return {nn: self.line[nn].scatter() for nn in self.elements}
+
+    def run(self, *, track=False, n_turns=None, generate_particles=None,
+            with_progress=False):
+        """
+        Run the configured Touschek rate or loss study.
+
+        If ``track`` is false and ``generate_particles`` is not requested, the
+        result is based on the integrated Piwinski rates configured on the
+        Touschek elements. If particles are generated, their weights are used
+        instead. If ``track`` is true, particles are generated and tracked from
+        each scattering element back to itself.
+        """
+        if track:
+            if generate_particles is False:
+                raise ValueError(
+                    "`generate_particles=False` is incompatible with "
+                    "`track=True`."
+                )
+            if n_turns is None:
+                raise ValueError("`n_turns` is required when `track=True`.")
+            generate_particles = True
+        elif generate_particles is None:
+            generate_particles = False
+
+        particles_by_element = {}
+        merged_particles = None
+        lost_particles = None
+
+        if generate_particles:
+            for nn in self.elements:
+                particles = self.line[nn].scatter()
+                if track:
+                    self.line.track(
+                        particles,
+                        ele_start=nn,
+                        ele_stop=nn,
+                        num_turns=n_turns,
+                        with_progress=with_progress,
+                    )
+                particles_by_element[nn] = particles
+
+            merged_particles = xt.Particles.merge(
+                list(particles_by_element.values()))
+            scattering_rate = float(np.sum(merged_particles.weight))
+        else:
+            scattering_rate = float(sum(
+                getattr(self.line[nn], "integrated_piwinski_rate")
+                for nn in self.elements
+            ))
+
+        if track:
+            lost_particles = merged_particles.filter(
+                merged_particles.state == 0)
+            loss_rate = float(np.sum(lost_particles.weight))
+        else:
+            loss_rate = scattering_rate
+
+        if loss_rate == 0:
+            lifetime = np.inf
+        else:
+            lifetime = float(self.bunch_population / loss_rate)
+
+        local_rates = self.local_rates(
+            particles_by_element=particles_by_element,
+        )
+
+        return TouschekResult(
+            study=self,
+            elements=self.elements,
+            local_momentum_acceptance=self.local_momentum_acceptance,
+            local_rates=local_rates,
+            scattering_rate=scattering_rate,
+            loss_rate=loss_rate,
+            lifetime=lifetime,
+            particles_by_element=particles_by_element,
+            particles=merged_particles,
+            lost_particles=lost_particles,
+            tracked=track,
+        )

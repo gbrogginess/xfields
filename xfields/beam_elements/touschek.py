@@ -73,7 +73,7 @@ class TouschekScattering(xt.BeamElement):
         :math:`\\sqrt{\\varepsilon}` for the transverse planes and
         :math:`\\sigma` for the longitudinal plane.  The sampling window is
         :math:`\\pm n_x \\sqrt{\\varepsilon_x}`, etc.  ``nz`` may be
-        reduced automatically by :class:`TouschekManager` to prevent
+        reduced automatically by :class:`TouschekStudy` to prevent
         particles being drawn outside the LMA before scattering.
     theta_min, theta_max : float, optional
         Lower and upper limits of the centre-of-mass scattering angle
@@ -94,9 +94,9 @@ class TouschekScattering(xt.BeamElement):
         Setting this to ``0`` keeps all simulated particles.
     integrated_piwinski_rate : float, optional
         Piwinski rate integrated (trapezoidal rule) over the lattice section
-        preceding this element and divided by :math:`c` and
-        :math:`T_{\\text{rev}}` to give a per-bunch, per-turn rate [1/s].
-        Set by :meth:`TouschekManager.initialise_touschek`; used to weight
+        preceding this element and divided by the line length to give the
+        section contribution to the ring-averaged per-bunch rate [1/s].
+        Set by :meth:`TouschekStudy.initialise_touschek`; used to weight
         the scattered macro-particles.
     seed : int, optional
         Seed for the ELEGANT-compatible 48-bit LCG random number generator.

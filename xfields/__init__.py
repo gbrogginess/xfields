@@ -16,7 +16,8 @@ from .slicers import UniformBinSlicer
 
 from .solvers.fftsolvers import FFTSolver3D
 
-from .touschek.manager import TouschekManager
+from .touschek.study import TouschekResult, TouschekStudy
+from .line_tools import XfieldsLineAPI
 
 from .beam_elements.spacecharge import SpaceCharge3D, SpaceChargeBiGaussian
 from .beam_elements.beambeam2d import BeamBeamBiGaussian2D

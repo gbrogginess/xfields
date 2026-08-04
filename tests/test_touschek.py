@@ -123,13 +123,13 @@ def toy_ring():
     )
 
     # Build a tracker once so tracking tests can reuse it
-    line.build_tracker(_context=xo.ContextCpu(omp_num_threads=1))
+    line.build_tracker(_context=xo.ContextCpu(omp_num_threads=0))
 
     yield dict(line=line, twiss=tw, lma=lma)
 
 
 #############################################################
-# Helper: fresh (unscaled) copy of LMA and new TouschekManager
+# Helper: fresh (unscaled) copy of LMA and new TouschekStudy
 #############################################################
 def _fresh_lma(toy_ring_data):
     """Return an independent copy of the module-level LMA table."""
@@ -141,9 +141,9 @@ def _fresh_lma(toy_ring_data):
         'deltap': lma.deltap.copy(),
     })
 
-def _build_manager(line, lma, twiss=None, *, n_simulated=int(1e6), **kwargs):
+def _build_study(line, lma, twiss=None, *, n_simulated=int(1e6), **kwargs):
     """
-    Convenience factory for TouschekManager with sensible test defaults.
+    Convenience factory for TouschekStudy with sensible test defaults.
     """
     defaults = dict(
         local_momentum_acceptance=lma,
@@ -160,28 +160,28 @@ def _build_manager(line, lma, twiss=None, *, n_simulated=int(1e6), **kwargs):
         method='4d',
     )
     defaults.update(kwargs)
-    return xf.TouschekManager(line, twiss=twiss, **defaults)
+    return xf.TouschekStudy(line, twiss=twiss, **defaults)
 
 
 #############################################################
 # Tests
 #############################################################
-class TestTouschekManagerInit:
-    """Unit-tests for TouschekManager constructor validation."""
+class TestTouschekStudyInit:
+    """Unit-tests for TouschekStudy constructor validation."""
 
     def test_construction_with_normalised_emittances(self, toy_ring):
-        """Manager constructed with nemitt_x/y converts to geometric emittances."""
+        """Study constructed with nemitt_x/y converts to geometric emittances."""
         line = toy_ring['line']
         lma  = _fresh_lma(toy_ring)
         tw   = toy_ring['twiss']
-        tm   = _build_manager(line, lma, tw)
+        study = _build_study(line, lma, tw)
         beta0  = line.particle_ref.beta0[0]
         gamma0 = line.particle_ref.gamma0[0]
-        assert tm.gemitt_x == pytest.approx(NEMITT_X / (beta0 * gamma0))
-        assert tm.gemitt_y == pytest.approx(NEMITT_Y / (beta0 * gamma0))
+        assert study.gemitt_x == pytest.approx(NEMITT_X / (beta0 * gamma0))
+        assert study.gemitt_y == pytest.approx(NEMITT_Y / (beta0 * gamma0))
 
     def test_construction_with_geometric_emittances(self, toy_ring):
-        """Manager constructed with gemitt_x/y stores them directly."""
+        """Study constructed with gemitt_x/y stores them directly."""
         line   = toy_ring['line']
         lma    = _fresh_lma(toy_ring)
         tw     = toy_ring['twiss']
@@ -189,10 +189,10 @@ class TestTouschekManagerInit:
         gamma0 = line.particle_ref.gamma0[0]
         gx = NEMITT_X / (beta0 * gamma0)
         gy = NEMITT_Y / (beta0 * gamma0)
-        tm = _build_manager(line, lma, tw, gemitt_x=gx, gemitt_y=gy,
-                            nemitt_x=None, nemitt_y=None)
-        assert tm.gemitt_x == pytest.approx(gx)
-        assert tm.gemitt_y == pytest.approx(gy)
+        study = _build_study(line, lma, tw, gemitt_x=gx, gemitt_y=gy,
+                             nemitt_x=None, nemitt_y=None)
+        assert study.gemitt_x == pytest.approx(gx)
+        assert study.gemitt_y == pytest.approx(gy)
 
     def test_lma_is_scaled_in_place(self, toy_ring):
         """LMA columns must be multiplied by local_momentum_acceptance_scale."""
@@ -202,15 +202,29 @@ class TestTouschekManagerInit:
         deltan_before = lma_fresh.deltan.copy()
         deltap_before = lma_fresh.deltap.copy()
         scale = 0.85
-        _build_manager(line, lma_fresh, tw,
+        _build_study(line, lma_fresh, tw,
                        local_momentum_acceptance_scale=scale)
         np.testing.assert_allclose(lma_fresh.deltan, deltan_before * scale)
         np.testing.assert_allclose(lma_fresh.deltap, deltap_before * scale)
 
     def test_raises_on_missing_line(self, toy_ring):
         with pytest.raises(ValueError, match=r'`line` is required'):
-            xf.TouschekManager(
+            xf.TouschekStudy(
                 line=None,
+                local_momentum_acceptance=_fresh_lma(toy_ring),
+                sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
+                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
+            )
+
+    def test_raises_on_missing_particle_ref(self, toy_ring):
+        line = xt.Line(
+            elements=[xf.TouschekScattering()],
+            element_names=['ts'],
+        )
+        with pytest.raises(ValueError, match=r'particle_ref'):
+            xf.TouschekStudy(
+                line,
                 local_momentum_acceptance=_fresh_lma(toy_ring),
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
                 bunch_population=BUNCH_POPULATION, n_simulated=10,
@@ -231,19 +245,19 @@ class TestTouschekManagerInit:
         )
         kw = {k: v for k, v in required.items() if k != missing_key}
         with pytest.raises(ValueError):
-            xf.TouschekManager(line, **kw)
+            xf.TouschekStudy(line, **kw)
 
     def test_raises_on_both_nemitt_and_gemitt(self, toy_ring):
         line = toy_ring['line']
         lma  = _fresh_lma(toy_ring)
         tw   = toy_ring['twiss']
         with pytest.raises(ValueError, match=r'not both'):
-            _build_manager(line, lma, tw, gemitt_x=1e-9, gemitt_y=1e-11)
+            _build_study(line, lma, tw, gemitt_x=1e-9, gemitt_y=1e-11)
 
     def test_raises_on_neither_nemitt_nor_gemitt(self, toy_ring):
         line = toy_ring['line']
         with pytest.raises(ValueError, match=r'must provide'):
-            xf.TouschekManager(
+            xf.TouschekStudy(
                 line,
                 local_momentum_acceptance=_fresh_lma(toy_ring),
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
@@ -257,7 +271,7 @@ class TestTouschekManagerInit:
         bad  = pd.DataFrame({'name': ['a'], 's': [0.0],
                              'deltan': [-0.01], 'deltap': [0.01]})
         with pytest.raises(TypeError, match=r'xt\.Table'):
-            xf.TouschekManager(
+            xf.TouschekStudy(
                 line,
                 local_momentum_acceptance=bad,
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
@@ -272,7 +286,7 @@ class TestTouschekManagerInit:
         # Build an xt.Table without 'deltap'
         bad  = xt.Table({'name': lma.name, 's': lma.s, 'deltan': lma.deltan})
         with pytest.raises(ValueError, match=r'missing columns'):
-            xf.TouschekManager(
+            xf.TouschekStudy(
                 line,
                 local_momentum_acceptance=bad,
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
@@ -289,7 +303,7 @@ class TestTouschekManagerInit:
         bad = xt.Table({'name': lma.name, 's': lma.s,
                         'deltan': deltan_bad, 'deltap': lma.deltap})
         with pytest.raises(ValueError, match=r'NaN'):
-            xf.TouschekManager(
+            xf.TouschekStudy(
                 line,
                 local_momentum_acceptance=bad,
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
@@ -303,7 +317,7 @@ class TestTouschekManagerInit:
         bare = env2.new_line(components=[env2.new('d1', xt.Drift, length=1.0)])
         bare.set_particle_ref('electron', p0c=1e9)
         with pytest.raises(ValueError, match=r'TouschekScattering'):
-            xf.TouschekManager(
+            xf.TouschekStudy(
                 bare,
                 local_momentum_acceptance=toy_ring['lma'],
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
@@ -312,19 +326,19 @@ class TestTouschekManagerInit:
             )
 
 
-class TestTouschekManagerInitialise:
-    """Tests for TouschekManager.initialise_touschek()."""
+class TestTouschekStudyInitialise:
+    """Tests for TouschekStudy.initialise_touschek()."""
 
     @pytest.fixture(autouse=True)
     def _setup(self, toy_ring):
-        """Build a fresh manager and initialise it."""
+        """Build a fresh study and initialise it."""
         self.line   = toy_ring['line']
         self.tw     = toy_ring['twiss']
         tab         = self.line.get_table()
         self.tnames = tab.rows.match(element_type='TouschekScattering').name
         lma         = _fresh_lma(toy_ring)
-        self.tm     = _build_manager(self.line, lma, self.tw)
-        self.tm.initialise_touschek()
+        self.study  = _build_study(self.line, lma, self.tw)
+        self.study.initialise_touschek()
 
     def test_all_elements_are_configured(self):
         assert len(self.tnames) > 0
@@ -370,7 +384,7 @@ class TestTouschekManagerInitialise:
                 f'{nn}: nz={el.nz} exceeds requested nz=3.0'
 
     def test_twiss_populated_after_initialise(self):
-        assert self.tm.twiss is not None
+        assert self.study.twiss is not None
 
     def test_partial_initialise_single_element(self):
         """
@@ -381,13 +395,13 @@ class TestTouschekManagerInitialise:
         nn       = self.tnames[0]
         el       = self.line[nn]
         old_rate = el.integrated_piwinski_rate
-        self.tm.bunch_population *= 2
-        self.tm.initialise_touschek(element=nn)
+        self.study.bunch_population *= 2
+        self.study.initialise_touschek(element=nn)
         assert el.integrated_piwinski_rate > old_rate
 
     def test_partial_initialise_raises_on_wrong_type(self):
         with pytest.raises(TypeError, match=r'string'):
-            self.tm.initialise_touschek(element=42)
+            self.study.initialise_touschek(element=42)
 
 
 class TestTouschekScattering:
@@ -398,8 +412,8 @@ class TestTouschekScattering:
         self.line = toy_ring['line']
         tw        = toy_ring['twiss']
         lma       = _fresh_lma(toy_ring)
-        tm        = _build_manager(self.line, lma, tw)
-        tm.initialise_touschek()
+        study     = _build_study(self.line, lma, tw)
+        study.initialise_touschek()
 
         # Scatter from the first TouschekScattering element only (fast)
         tab        = self.line.get_table()
@@ -467,8 +481,8 @@ class TestPiwinskiIntegral:
     @pytest.fixture(autouse=True)
     def _setup(self, toy_ring):
         lma        = _fresh_lma(toy_ring)
-        tm         = _build_manager(toy_ring['line'], lma, toy_ring['twiss'])
-        self.calc  = tm.touschek
+        study      = _build_study(toy_ring['line'], lma, toy_ring['twiss'])
+        self.calc  = study.touschek
 
     def test_integral_positive(self):
         val = self.calc._compute_piwinski_integral(0.01, B1=5.0, B2=3.0)
@@ -503,23 +517,12 @@ class TestEndToEndLifetime:
         tw   = toy_ring['twiss']
         lma  = _fresh_lma(toy_ring)
 
-        tm = _build_manager(line, lma, tw, n_simulated=int(2e5))
-        tm.initialise_touschek()
+        study = _build_study(line, lma, tw, n_simulated=int(2e5))
+        study.initialise_touschek()
+        result = study.run(track=True, n_turns=128)
 
-        tab    = line.get_table()
-        tnames = tab.rows.match(element_type='TouschekScattering').name
-
-        particles_list = []
-        for nn in tnames:
-            parts = line[nn].scatter()
-            line.track(parts, ele_start=nn, ele_stop=nn, num_turns=128)
-            particles_list.append(parts)
-
-        merged    = xt.Particles.merge(particles_list)
-        lost      = merged.filter(merged.state == 0)
-        loss_rate = float(sum(lost.weight))
+        loss_rate = result.loss_rate
 
         assert loss_rate > 0, 'No particles were lost — something is wrong'
 
-        lifetime = BUNCH_POPULATION / loss_rate
-        assert np.isfinite(lifetime) and lifetime > 0
+        assert np.isfinite(result.lifetime) and result.lifetime > 0
