@@ -115,3 +115,82 @@ def test_total_rate_and_lifetime_against_elegant(elegant_comparison):
         reference_summary['total_piwinski_rate_hz'], rel=1e-5)
     assert lifetime == pytest.approx(
         reference_summary['touschek_lifetime_s'], rel=1e-5)
+
+
+@pytest.fixture(scope='module')
+def scattered_distribution(elegant_comparison):
+    line, names, _, _ = elegant_comparison
+    # TS0 represents a zero-length section and has zero particle weight.
+    particles = [line[name].scatter() for name in names[1:]]
+    with np.load(
+            REFERENCE_DIR / 'scattered_distribution_reference.npz') as data:
+        reference = {name: data[name].copy() for name in data.files}
+    return particles, reference
+
+
+def _xfields_scatter_summary(particles, quantity, bin_edges):
+    attribute = {'xp': 'kin_xp', 'yp': 'kin_yp'}.get(quantity, quantity)
+    values = []
+    weights = []
+    for part in particles:
+        alive = part.state == 1
+        values.append(np.asarray(getattr(part, attribute)[alive]))
+        weights.append(np.asarray(part.weight[alive]))
+    values = np.concatenate(values)
+    weights = np.concatenate(weights)
+    histogram = np.histogram(values, bins=bin_edges, weights=weights)[0]
+    histogram /= histogram.sum()
+    mean = np.average(values, weights=weights)
+    standard_deviation = np.sqrt(
+        np.average((values - mean)**2, weights=weights))
+    return histogram, np.array([
+        weights.sum(), mean, standard_deviation])
+
+
+def _aggregate_elegant_summary(reference, quantity):
+    element_moments = reference[f'{quantity}_moments']
+    weights = element_moments[:, 0]
+    mean = np.average(element_moments[:, 1], weights=weights)
+    variance = np.average(
+        element_moments[:, 2]**2 + (element_moments[:, 1] - mean)**2,
+        weights=weights)
+    histogram = np.average(
+        reference[f'{quantity}_histogram'], axis=0, weights=weights)
+    return histogram, np.array([
+        weights.sum(), mean, np.sqrt(variance)])
+
+
+def test_scattered_delta_distribution_against_elegant(
+        scattered_distribution):
+    particles, reference = scattered_distribution
+    xfields_histogram, _ = _xfields_scatter_summary(
+        particles, 'delta', reference['delta_bin_edges'])
+    elegant_histogram, _ = _aggregate_elegant_summary(reference, 'delta')
+
+    # Weighted samples contain only a few thousand retained particles. The L1
+    # distance is stable while avoiding fragile, sparsely populated bin tests.
+    assert np.sum(np.abs(xfields_histogram - elegant_histogram)) < 0.30
+
+
+@pytest.mark.parametrize(
+    'quantity, mean_atol, std_rtol',
+    [
+        ('x', 3e-4, 0.20),
+        ('xp', 2e-5, 0.30),
+        ('y', 5e-6, 0.25),
+        ('yp', 2e-6, 0.35),
+        ('delta', 2e-3, 0.15),
+    ])
+def test_scattered_weighted_moments_against_elegant(
+        scattered_distribution, quantity, mean_atol, std_rtol):
+    particles, reference = scattered_distribution
+    _, xfields_moments = _xfields_scatter_summary(
+        particles, quantity, reference[f'{quantity}_bin_edges'])
+    _, elegant_moments = _aggregate_elegant_summary(reference, quantity)
+
+    assert xfields_moments[0] == pytest.approx(
+        elegant_moments[0], rel=5e-3)
+    assert xfields_moments[1] == pytest.approx(
+        elegant_moments[1], abs=mean_atol)
+    assert xfields_moments[2] == pytest.approx(
+        elegant_moments[2], rel=std_rtol)

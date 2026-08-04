@@ -62,7 +62,13 @@ awk -F, '
     }
 ' reference.csv > reference_summary.json
 
+python_bin=${PYTHON_BIN:-python}
+"${python_bin}" extract_scattered_distribution.py \
+    --sdds2stream "$(command -v sdds2stream)"
+
 sha256sum toy_ring.ele toy_ring.lte momentum_aperture.sdds \
     toy_ring.twi toy_ring.scatter.sdds toy_ring.distribution.sdds \
     twiss_table.txt touschek_rates.txt scatter_summary.txt \
-    reference.csv reference_summary.json > SHA256SUMS
+    reference.csv reference_summary.json \
+    scattered_distribution_reference.npz \
+    scattered_distribution_metadata.json > SHA256SUMS

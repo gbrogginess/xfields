@@ -1,4 +1,4 @@
-Running elegant at Tue Aug  4 10:51:32 2026
+Running elegant at Tue Aug  4 12:52:41 2026
 
 This is elegant 2026.3.0, Aug  4 2026, by M. Borland, J. Calvey, M. Carla', N. Carmignani, AJ Dick, Z. Duan, M. Ehrlichman, L. Emery, W. Guo, N. Kuklev, R. Lindberg, V. Sajaev, R. Soliday, Y.-P. Sun, M. Wallbank, C.-X. Wang, Y. Wang, Y. Wu, and A. Xiao.
 =====================================================================================
@@ -8,7 +8,7 @@ Thanks for using elegant.  Please cite the following reference in your publicati
 If you use a modified version, please indicate this in all publications.
 =====================================================================================
 Link date: Aug  4 2026 10:34:35, SVN revision: GIT_1
-statistics:    ET:  00:00:0.000 CP:    0.02 BIO:0 DIO:0 PF:0 MEM:14540
+statistics:    ET:  00:00:0.000 CP:    0.01 BIO:0 DIO:0 PF:0 MEM:14532
 &run_setup
     lattice = toy_ring.lte,
     use_beamline = RING,
@@ -54,7 +54,7 @@ statistics:    ET:  00:00:0.000 CP:    0.02 BIO:0 DIO:0 PF:0 MEM:14540
 &end
 Seeding random number generators
 length of beamline RING per pass: 2.120000000000000e+01 m
-statistics:    ET:  00:00:0.001 CP:    0.02 BIO:0 DIO:0 PF:0 MEM:15656
+statistics:    ET:  00:00:0.001 CP:    0.04 BIO:0 DIO:0 PF:0 MEM:15640
 &twiss_output
     filename = %s.twi,
     matched = 1,
@@ -88,7 +88,7 @@ statistics:    ET:  00:00:0.001 CP:    0.02 BIO:0 DIO:0 PF:0 MEM:15656
     local_dispersion = 1,
     n_periods = 1,
 &end
-statistics:    ET:  00:00:0.001 CP:    0.02 BIO:0 DIO:0 PF:0 MEM:16184
+statistics:    ET:  00:00:0.001 CP:    0.04 BIO:0 DIO:0 PF:0 MEM:16192
 &run_control
     n_steps = 1,
     bunch_frequency = 0.000000000000000e+00,
@@ -105,11 +105,11 @@ statistics:    ET:  00:00:0.001 CP:    0.02 BIO:0 DIO:0 PF:0 MEM:16184
     semaphore_check_interval = 1.000000000000000e+00,
     restart_files = 0,
 &end
-statistics:    ET:  00:00:0.001 CP:    0.02 BIO:0 DIO:0 PF:0 MEM:16296
+statistics:    ET:  00:00:0.001 CP:    0.04 BIO:0 DIO:0 PF:0 MEM:16240
 Updating floor coordinates
 tracking step 1
 16 matrices recomputed for periodic Twiss parameter computation
-statistics:    ET:  00:00:0.001 CP:    0.05 BIO:0 DIO:0 PF:0 MEM:16624
+statistics:    ET:  00:00:0.001 CP:    0.04 BIO:0 DIO:0 PF:0 MEM:16592
 periodic Twiss parameters (chromaticity valid for fully second-order calculation only!):
          beta          alpha           nu           eta          eta'       dnu/d(dp/p)   dbeta/(dp/p)     accept.
           m                          1/2pi           m                         1/2pi            m          mm-mrad
@@ -153,52 +153,52 @@ y acceptance limited to 9.011716e+00 by D22 ending at 1.590000e+01 m
 &end
 Output filenames will not have occurence index
 Working on TS0#1 at s=0.000000e+00, n_simulated = 100000
-Before particle generation:    ET:  00:00:0.010 CP:    0.30 BIO:0 DIO:0 PF:0 MEM:17868
-After particle generation:    ET:  00:00:0.124 CP:    2.05 BIO:0 DIO:0 PF:0 MEM:25636
+Before particle generation:    ET:  00:00:0.018 CP:    0.57 BIO:0 DIO:0 PF:0 MEM:17896
+After particle generation:    ET:  00:00:0.129 CP:    2.05 BIO:0 DIO:0 PF:0 MEM:25664
 303 of 100000 particles selected for tracking
-After particle selection:    ET:  00:00:0.124 CP:    2.05 BIO:0 DIO:0 PF:0 MEM:28012
+After particle selection:    ET:  00:00:0.130 CP:    2.05 BIO:0 DIO:0 PF:0 MEM:28040
 Working on TS1#1 at s=1.300000e+00, n_simulated = 100000
-Before particle generation:    ET:  00:00:0.131 CP:    2.05 BIO:0 DIO:0 PF:0 MEM:22420
-After particle generation:    ET:  00:00:0.196 CP:    2.12 BIO:0 DIO:0 PF:0 MEM:26552
+Before particle generation:    ET:  00:00:0.138 CP:    2.05 BIO:0 DIO:0 PF:0 MEM:22448
+After particle generation:    ET:  00:00:0.200 CP:    2.12 BIO:0 DIO:0 PF:0 MEM:26580
 139 of 100000 particles selected for tracking
-After particle selection:    ET:  00:00:0.196 CP:    2.12 BIO:0 DIO:0 PF:0 MEM:28128
+After particle selection:    ET:  00:00:0.200 CP:    2.12 BIO:0 DIO:0 PF:0 MEM:28156
 Working on TS2#1 at s=5.300000e+00, n_simulated = 100000
-Before particle generation:    ET:  00:00:0.202 CP:    2.12 BIO:0 DIO:0 PF:0 MEM:28140
-After particle generation:    ET:  00:00:0.263 CP:    2.18 BIO:0 DIO:0 PF:0 MEM:28140
+Before particle generation:    ET:  00:00:0.206 CP:    2.12 BIO:0 DIO:0 PF:0 MEM:28168
+After particle generation:    ET:  00:00:0.267 CP:    2.18 BIO:0 DIO:0 PF:0 MEM:28168
 297 of 100000 particles selected for tracking
-After particle selection:    ET:  00:00:0.264 CP:    2.18 BIO:0 DIO:0 PF:0 MEM:28140
+After particle selection:    ET:  00:00:0.267 CP:    2.18 BIO:0 DIO:0 PF:0 MEM:28168
 Working on TS3#1 at s=6.600000e+00, n_simulated = 100000
-Before particle generation:    ET:  00:00:0.268 CP:    2.18 BIO:0 DIO:0 PF:0 MEM:28184
-After particle generation:    ET:  00:00:0.315 CP:    2.23 BIO:0 DIO:0 PF:0 MEM:28184
+Before particle generation:    ET:  00:00:0.272 CP:    2.18 BIO:0 DIO:0 PF:0 MEM:28212
+After particle generation:    ET:  00:00:0.318 CP:    2.22 BIO:0 DIO:0 PF:0 MEM:28212
 266 of 100000 particles selected for tracking
-After particle selection:    ET:  00:00:0.315 CP:    2.23 BIO:0 DIO:0 PF:0 MEM:28184
+After particle selection:    ET:  00:00:0.318 CP:    2.22 BIO:0 DIO:0 PF:0 MEM:28212
 Working on TS4#1 at s=1.060000e+01, n_simulated = 100000
-Before particle generation:    ET:  00:00:0.321 CP:    2.23 BIO:0 DIO:0 PF:0 MEM:28188
-After particle generation:    ET:  00:00:0.401 CP:    2.31 BIO:0 DIO:0 PF:0 MEM:28188
+Before particle generation:    ET:  00:00:0.324 CP:    2.22 BIO:0 DIO:0 PF:0 MEM:28216
+After particle generation:    ET:  00:00:0.404 CP:    2.30 BIO:0 DIO:0 PF:0 MEM:28216
 375 of 100000 particles selected for tracking
-After particle selection:    ET:  00:00:0.401 CP:    2.31 BIO:0 DIO:0 PF:0 MEM:28188
+After particle selection:    ET:  00:00:0.404 CP:    2.30 BIO:0 DIO:0 PF:0 MEM:28216
 Working on TS5#1 at s=1.190000e+01, n_simulated = 100000
-Before particle generation:    ET:  00:00:0.406 CP:    2.31 BIO:0 DIO:0 PF:0 MEM:28212
-After particle generation:    ET:  00:00:0.460 CP:    2.36 BIO:0 DIO:0 PF:0 MEM:28212
+Before particle generation:    ET:  00:00:0.409 CP:    2.30 BIO:0 DIO:0 PF:0 MEM:28240
+After particle generation:    ET:  00:00:0.464 CP:    2.36 BIO:0 DIO:0 PF:0 MEM:28240
 307 of 100000 particles selected for tracking
-After particle selection:    ET:  00:00:0.461 CP:    2.36 BIO:0 DIO:0 PF:0 MEM:28212
+After particle selection:    ET:  00:00:0.464 CP:    2.36 BIO:0 DIO:0 PF:0 MEM:28240
 Working on TS6#1 at s=1.590000e+01, n_simulated = 100000
-Before particle generation:    ET:  00:00:0.466 CP:    2.36 BIO:0 DIO:0 PF:0 MEM:28216
-After particle generation:    ET:  00:00:0.527 CP:    2.42 BIO:0 DIO:0 PF:0 MEM:28216
+Before particle generation:    ET:  00:00:0.469 CP:    2.36 BIO:0 DIO:0 PF:0 MEM:28244
+After particle generation:    ET:  00:00:0.530 CP:    2.42 BIO:0 DIO:0 PF:0 MEM:28244
 307 of 100000 particles selected for tracking
-After particle selection:    ET:  00:00:0.527 CP:    2.42 BIO:0 DIO:0 PF:0 MEM:28216
+After particle selection:    ET:  00:00:0.530 CP:    2.42 BIO:0 DIO:0 PF:0 MEM:28244
 Working on TS7#1 at s=1.720000e+01, n_simulated = 100000
-Before particle generation:    ET:  00:00:0.531 CP:    2.42 BIO:0 DIO:0 PF:0 MEM:28216
-After particle generation:    ET:  00:00:0.578 CP:    2.47 BIO:0 DIO:0 PF:0 MEM:28216
+Before particle generation:    ET:  00:00:0.535 CP:    2.42 BIO:0 DIO:0 PF:0 MEM:28244
+After particle generation:    ET:  00:00:0.580 CP:    2.47 BIO:0 DIO:0 PF:0 MEM:28244
 320 of 100000 particles selected for tracking
-After particle selection:    ET:  00:00:0.578 CP:    2.47 BIO:0 DIO:0 PF:0 MEM:28272
+After particle selection:    ET:  00:00:0.580 CP:    2.47 BIO:0 DIO:0 PF:0 MEM:28300
 Working on TS8#1 at s=2.120000e+01, n_simulated = 100000
-Before particle generation:    ET:  00:00:0.583 CP:    2.47 BIO:0 DIO:0 PF:0 MEM:28280
-After particle generation:    ET:  00:00:0.663 CP:    2.55 BIO:0 DIO:0 PF:0 MEM:28280
+Before particle generation:    ET:  00:00:0.586 CP:    2.47 BIO:0 DIO:0 PF:0 MEM:28308
+After particle generation:    ET:  00:00:0.666 CP:    2.55 BIO:0 DIO:0 PF:0 MEM:28308
 144 of 100000 particles selected for tracking
-After particle selection:    ET:  00:00:0.663 CP:    2.55 BIO:0 DIO:0 PF:0 MEM:28288
+After particle selection:    ET:  00:00:0.666 CP:    2.55 BIO:0 DIO:0 PF:0 MEM:28316
 End of input data encountered.
-statistics:    ET:  00:00:0.667 CP:    2.55 BIO:0 DIO:0 PF:0 MEM:28288
+statistics:    ET:  00:00:0.671 CP:    2.55 BIO:0 DIO:0 PF:0 MEM:28316
 =====================================================================================
 Thanks for using elegant.  Please cite the following reference in your publications:
   M. Borland, "elegant: A Flexible SDDS-Compliant Code for Accelerator Simulation,"

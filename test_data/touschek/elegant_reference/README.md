@@ -102,6 +102,7 @@ Regenerate from this directory with:
 export RPN_DEFNS=/tmp/elegant-reference-build/SDDS/defns.rpn
 export ELEGANT_BIN=/tmp/elegant-reference-build/elegant/bin/Linux-x86_64/elegant
 export SDDS_BIN_DIR=/tmp/elegant-reference-build/SDDS/bin/Linux-x86_64
+export PYTHON_BIN=/home/giadarol/miniforge3/envs/py313/bin/python
 ./run_reference.sh
 sha256sum -c SHA256SUMS
 ```
@@ -114,7 +115,14 @@ sha256sum -c SHA256SUMS
 - `run_reference.sh`: the only regeneration and extraction command.
 - `toy_ring.twi`: frozen ELEGANT optics in binary SDDS form.
 - `toy_ring.scatter.sdds`: selected scattered particles and section weights.
-  It is retained for provenance, but tests do not compare particles.
+  Each page is a TSCATTER element and contains post-scattering, pre-tracking
+  `x`, `xp`, `y`, `yp`, `p`, `LRate`, and `TRate` values. ELEGANT
+  does not expose the centre-of-mass scattering angle in this file.
+- `extract_scattered_distribution.py`: converts the raw scatter pages into
+  deterministic weighted histograms and moments.
+- `scattered_distribution_reference.npz`: compact fixed-bin histograms and
+  weighted moments for `x`, `xp`, `y`, `yp`, and `delta=p/pCentral-1`.
+- `scattered_distribution_metadata.json`: generation settings and weighting.
 - `toy_ring.distribution.sdds`: per-marker histograms and Piwinski/Monte Carlo
   rate parameters in binary SDDS form.
 - `reference.csv`: precision-preserving per-marker scalar rates and counts.
@@ -129,21 +137,31 @@ sha256sum -c SHA256SUMS
 
 ## Comparison policy and tolerances
 
-Only scalar and table-level quantities should be compared. Do not compare
-individual scattered particles, since selection and particle ordering are
-Monte Carlo implementation details.
+Do not compare individual scattered particles, since selection and particle
+ordering are Monte Carlo implementation details. Distribution comparisons use
+ELEGANT's `TRate` as the event weight, which is the section-normalized row
+rate and corresponds directly to the xfields particle weight.
 
 The pytest comparison uses:
 
 - local nonzero Piwinski rates: relative tolerance `1e-5`;
 - total integrated Piwinski rate: relative tolerance `1e-5`;
 - Touschek lifetime inferred as `bunch_intensity / total_rate`: relative
-  tolerance `1e-5`.
+  tolerance `1e-5`;
+- aggregate weighted `delta` histogram: L1 distance below `0.30`;
+- aggregate retained-weight sum: relative tolerance `5e-3`;
+- weighted means: absolute tolerances from `2e-6` to `2e-3`, depending on
+  coordinate scale;
+- weighted standard deviations: relative tolerances from `0.15` to `0.35`.
 
 The xfields comparison places the `TouschekScattering` markers at the exact
 `s_m` positions stored in `reference.csv`. With matching marker locations, the
 measured differences for this frozen case are a few ppm locally and for the
 total rate. ELEGANT records a zero local Piwinski rate at the first zero-length
 `TSCATTER` section, so that entry is excluded from the local-rate comparison.
-Monte Carlo local rates, selected counts, retained weight sums, and particles
-are diagnostics only and are not asserted across codes.
+The same zero-weight TS0 page is excluded from the aggregate distribution.
+TS1--TS8 contain 2,155 retained ELEGANT particles. Fixed bin edges and weighted
+moments are frozen instead of raw particle equality. The tolerances reflect the
+few-thousand-particle, strongly weighted Monte Carlo sample; they are broadest
+for transverse summaries and tighter for the momentum-deviation shape and total
+weight.

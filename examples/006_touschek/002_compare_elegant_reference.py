@@ -204,4 +204,107 @@ ax.grid(axis='y', alpha=0.3)
 
 fig.suptitle('xfields comparison with frozen ELEGANT Touschek reference')
 fig.tight_layout()
+
+######################################################
+# Compare and plot frozen scattered-particle summaries
+######################################################
+with np.load(
+        REFERENCE_DIR / 'scattered_distribution_reference.npz') as data:
+    scatter_reference = {name: data[name].copy() for name in data.files}
+
+# TS0 has zero section weight. Generate one fixed-seed sample at TS1--TS8.
+particles = [line[name].scatter() for name in touschek_names[1:]]
+
+
+def xfields_summary(quantity):
+    attribute = {'xp': 'kin_xp', 'yp': 'kin_yp'}.get(quantity, quantity)
+    values = []
+    weights = []
+    for part in particles:
+        alive = part.state == 1
+        values.append(np.asarray(getattr(part, attribute)[alive]))
+        weights.append(np.asarray(part.weight[alive]))
+    values = np.concatenate(values)
+    weights = np.concatenate(weights)
+    edges = scatter_reference[f'{quantity}_bin_edges']
+    histogram = np.histogram(values, edges, weights=weights)[0]
+    histogram /= histogram.sum()
+    mean = np.average(values, weights=weights)
+    std = np.sqrt(np.average((values - mean)**2, weights=weights))
+    return histogram, np.array([weights.sum(), mean, std])
+
+
+def elegant_summary(quantity):
+    element_moments = scatter_reference[f'{quantity}_moments']
+    weights = element_moments[:, 0]
+    mean = np.average(element_moments[:, 1], weights=weights)
+    std = np.sqrt(np.average(
+        element_moments[:, 2]**2 + (element_moments[:, 1] - mean)**2,
+        weights=weights))
+    histogram = np.average(
+        scatter_reference[f'{quantity}_histogram'], axis=0, weights=weights)
+    return histogram, np.array([weights.sum(), mean, std])
+
+
+quantities = ['x', 'xp', 'y', 'yp', 'delta']
+xfields_scatter = {name: xfields_summary(name) for name in quantities}
+elegant_scatter = {name: elegant_summary(name) for name in quantities}
+
+assert np.sum(np.abs(
+    xfields_scatter['delta'][0] - elegant_scatter['delta'][0])) < 0.30
+np.testing.assert_allclose(
+    xfields_scatter['delta'][1][2], elegant_scatter['delta'][1][2], rtol=0.15)
+
+fig_scatter, scatter_axes = plt.subplots(2, 2, figsize=(11, 8))
+scatter_axes = scatter_axes.ravel()
+edges = scatter_reference['delta_bin_edges']
+centers = (edges[:-1] + edges[1:]) / 2
+scatter_axes[0].step(
+    centers, elegant_scatter['delta'][0], where='mid', label='ELEGANT')
+scatter_axes[0].step(
+    centers, xfields_scatter['delta'][0], where='mid', label='xfields')
+scatter_axes[0].set_xlabel('Momentum deviation delta')
+scatter_axes[0].set_ylabel('Normalized weighted probability')
+scatter_axes[0].set_title('Scattered momentum distribution')
+scatter_axes[0].grid(alpha=0.3)
+scatter_axes[0].legend()
+
+width = 0.35
+positions = np.arange(len(quantities))
+elegant_std = [elegant_scatter[name][1][2] for name in quantities]
+xfields_std = [xfields_scatter[name][1][2] for name in quantities]
+scatter_axes[1].bar(positions - width / 2, elegant_std, width, label='ELEGANT')
+scatter_axes[1].bar(positions + width / 2, xfields_std, width, label='xfields')
+scatter_axes[1].set_xticks(positions, quantities)
+scatter_axes[1].set_yscale('log')
+scatter_axes[1].set_ylabel('Weighted standard deviation')
+scatter_axes[1].set_title('Asserted scattered-coordinate widths')
+scatter_axes[1].grid(axis='y', alpha=0.3)
+scatter_axes[1].legend()
+
+elegant_mean = [elegant_scatter[name][1][1] for name in quantities]
+xfields_mean = [xfields_scatter[name][1][1] for name in quantities]
+scatter_axes[2].bar(
+    positions - width / 2, elegant_mean, width, label='ELEGANT')
+scatter_axes[2].bar(
+    positions + width / 2, xfields_mean, width, label='xfields')
+scatter_axes[2].set_xticks(positions, quantities)
+scatter_axes[2].set_ylabel('Weighted mean')
+scatter_axes[2].set_title('Asserted scattered-coordinate means')
+scatter_axes[2].grid(axis='y', alpha=0.3)
+scatter_axes[2].legend()
+
+elegant_weight = elegant_scatter['delta'][1][0]
+xfields_weight = xfields_scatter['delta'][1][0]
+scatter_axes[3].bar(
+    ['ELEGANT\n(frozen)', 'xfields'],
+    [elegant_weight * 1e-3, xfields_weight * 1e-3],
+    color=colors)
+scatter_axes[3].set_ylabel('Retained section weight [kHz]')
+scatter_axes[3].set_title('Asserted aggregate particle-weight sum')
+scatter_axes[3].grid(axis='y', alpha=0.3)
+
+fig_scatter.suptitle('Post-scattering, pre-tracking distributions')
+fig_scatter.tight_layout()
+
 plt.show()
