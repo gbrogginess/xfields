@@ -251,9 +251,9 @@ xfields_scatter = {name: xfields_summary(name) for name in quantities}
 elegant_scatter = {name: elegant_summary(name) for name in quantities}
 
 assert np.sum(np.abs(
-    xfields_scatter['delta'][0] - elegant_scatter['delta'][0])) < 0.30
+    xfields_scatter['delta'][0] - elegant_scatter['delta'][0])) < 0.25
 np.testing.assert_allclose(
-    xfields_scatter['delta'][1][2], elegant_scatter['delta'][1][2], rtol=0.15)
+    xfields_scatter['delta'][1][2], elegant_scatter['delta'][1][2], rtol=0.05)
 
 fig_scatter, scatter_axes = plt.subplots(2, 2, figsize=(11, 8))
 scatter_axes = scatter_axes.ravel()
@@ -282,17 +282,17 @@ scatter_axes[1].set_title('Asserted scattered-coordinate widths')
 scatter_axes[1].grid(axis='y', alpha=0.3)
 scatter_axes[1].legend()
 
-elegant_mean = [elegant_scatter[name][1][1] for name in quantities]
-xfields_mean = [xfields_scatter[name][1][1] for name in quantities]
-scatter_axes[2].bar(
-    positions - width / 2, elegant_mean, width, label='ELEGANT')
-scatter_axes[2].bar(
-    positions + width / 2, xfields_mean, width, label='xfields')
+normalized_mean_difference = [
+    (xfields_scatter[name][1][1] - elegant_scatter[name][1][1])
+    / elegant_scatter[name][1][2]
+    for name in quantities
+]
+scatter_axes[2].bar(positions, normalized_mean_difference, width)
 scatter_axes[2].set_xticks(positions, quantities)
-scatter_axes[2].set_ylabel('Weighted mean')
-scatter_axes[2].set_title('Asserted scattered-coordinate means')
+scatter_axes[2].axhline(0.0, color='black', linewidth=0.8)
+scatter_axes[2].set_ylabel('(xfields - ELEGANT) / ELEGANT std')
+scatter_axes[2].set_title('Normalized weighted-mean difference')
 scatter_axes[2].grid(axis='y', alpha=0.3)
-scatter_axes[2].legend()
 
 elegant_weight = elegant_scatter['delta'][1][0]
 xfields_weight = xfields_scatter['delta'][1][0]

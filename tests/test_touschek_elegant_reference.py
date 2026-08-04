@@ -169,28 +169,29 @@ def test_scattered_delta_distribution_against_elegant(
 
     # Weighted samples contain only a few thousand retained particles. The L1
     # distance is stable while avoiding fragile, sparsely populated bin tests.
-    assert np.sum(np.abs(xfields_histogram - elegant_histogram)) < 0.30
+    assert np.sum(np.abs(xfields_histogram - elegant_histogram)) < 0.25
 
 
 @pytest.mark.parametrize(
-    'quantity, mean_atol, std_rtol',
+    'quantity, mean_sigma_tol, std_rtol',
     [
-        ('x', 3e-4, 0.20),
-        ('xp', 2e-5, 0.30),
-        ('y', 5e-6, 0.25),
-        ('yp', 2e-6, 0.35),
-        ('delta', 2e-3, 0.15),
+        ('x', 0.20, 0.20),
+        ('xp', 0.20, 0.30),
+        ('y', 0.20, 0.25),
+        ('yp', 0.20, 0.35),
+        ('delta', 0.05, 0.05),
     ])
 def test_scattered_weighted_moments_against_elegant(
-        scattered_distribution, quantity, mean_atol, std_rtol):
+        scattered_distribution, quantity, mean_sigma_tol, std_rtol):
     particles, reference = scattered_distribution
     _, xfields_moments = _xfields_scatter_summary(
         particles, quantity, reference[f'{quantity}_bin_edges'])
     _, elegant_moments = _aggregate_elegant_summary(reference, quantity)
 
     assert xfields_moments[0] == pytest.approx(
-        elegant_moments[0], rel=5e-3)
-    assert xfields_moments[1] == pytest.approx(
-        elegant_moments[1], abs=mean_atol)
+        elegant_moments[0], rel=1e-3)
+    normalized_mean_difference = (
+        xfields_moments[1] - elegant_moments[1]) / elegant_moments[2]
+    assert abs(normalized_mean_difference) < mean_sigma_tol
     assert xfields_moments[2] == pytest.approx(
         elegant_moments[2], rel=std_rtol)

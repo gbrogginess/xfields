@@ -148,11 +148,11 @@ The pytest comparison uses:
 - total integrated Piwinski rate: relative tolerance `1e-5`;
 - Touschek lifetime inferred as `bunch_intensity / total_rate`: relative
   tolerance `1e-5`;
-- aggregate weighted `delta` histogram: L1 distance below `0.30`;
-- aggregate retained-weight sum: relative tolerance `5e-3`;
-- weighted means: absolute tolerances from `2e-6` to `2e-3`, depending on
-  coordinate scale;
-- weighted standard deviations: relative tolerances from `0.15` to `0.35`.
+- aggregate weighted `delta` histogram: L1 distance below `0.25`;
+- aggregate retained-weight sum: relative tolerance `1e-3`;
+- weighted means: normalized mean-difference tolerances below `0.20` ELEGANT
+  standard deviations, or `0.05` for `delta`;
+- weighted standard deviations: relative tolerances from `0.05` to `0.35`.
 
 The xfields comparison places the `TouschekScattering` markers at the exact
 `s_m` positions stored in `reference.csv`. With matching marker locations, the
