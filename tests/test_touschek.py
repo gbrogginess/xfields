@@ -489,34 +489,35 @@ class TestTouschekScattering:
 
 class TestPiwinskiIntegral:
     """
-    Unit tests for TouschekCalculator._compute_piwinski_integral.
+    Unit tests for the Piwinski integral helper.
     """
 
-    @pytest.fixture(autouse=True)
-    def _setup(self, toy_ring):
-        lma        = _fresh_lma(toy_ring)
-        study      = _build_study(toy_ring['line'], lma, toy_ring['twiss'])
-        self.calc  = study.touschek
-
     def test_integral_positive(self):
-        val = self.calc._compute_piwinski_integral(0.01, B1=5.0, B2=3.0)
+        val = xf.TouschekStudy._compute_piwinski_integral(
+            0.01, B1=5.0, B2=3.0)
         assert val > 0
 
     def test_integral_decreases_with_larger_tm(self):
         """A larger momentum cut-off (larger tm) must give a smaller integral."""
         B1, B2 = 5.0, 3.0
-        assert (self.calc._compute_piwinski_integral(0.001, B1, B2) >
-                self.calc._compute_piwinski_integral(0.10,  B1, B2))
+        assert (
+            xf.TouschekStudy._compute_piwinski_integral(0.001, B1, B2)
+            > xf.TouschekStudy._compute_piwinski_integral(0.10, B1, B2)
+        )
 
     def test_integral_decreases_with_larger_B1(self):
         """Larger B1 (tighter beam) must suppress the integral."""
         tm, B2 = 0.01, 2.0
-        assert (self.calc._compute_piwinski_integral(tm, B1= 3.0, B2=B2) >
-                self.calc._compute_piwinski_integral(tm, B1=10.0, B2=B2))
+        assert (
+            xf.TouschekStudy._compute_piwinski_integral(tm, B1=3.0, B2=B2)
+            > xf.TouschekStudy._compute_piwinski_integral(
+                tm, B1=10.0, B2=B2)
+        )
 
     def test_integral_finite_for_large_B2_t(self):
         """The asymptotic I0 branch (B2*t > 500) must return a finite positive value."""
-        val = self.calc._compute_piwinski_integral(0.001, B1=600.0, B2=599.0)
+        val = xf.TouschekStudy._compute_piwinski_integral(
+            0.001, B1=600.0, B2=599.0)
         assert np.isfinite(val) and val > 0
 
 

@@ -40,293 +40,6 @@ class TouschekResult:
     tracked: bool
 
 
-def _touschek_local_rates(*, line, elements, particles_by_element=None):
-    data = {
-        "name": [],
-        "s": [],
-        "deltaN": [],
-        "deltaP": [],
-        "piwinski_rate": [],
-        "integrated_piwinski_rate": [],
-        "total_mc_rate": [],
-        "ignored_rate": [],
-        "num_particles": [],
-        "num_lost_particles": [],
-        "sum_weight": [],
-        "sum_lost_weight": [],
-    }
-
-    tab = line.get_table()
-    for nn in elements:
-        elem = line[nn]
-        data["name"].append(nn)
-        if hasattr(elem, "s"):
-            s = elem.s
-        else:
-            s = tab["s", nn]
-        data["s"].append(float(s))
-        data["deltaN"].append(float(getattr(elem, "deltaN", np.nan)))
-        data["deltaP"].append(float(getattr(elem, "deltaP", np.nan)))
-        data["piwinski_rate"].append(
-            float(getattr(elem, "piwinski_rate", np.nan)))
-        data["integrated_piwinski_rate"].append(
-            float(getattr(elem, "integrated_piwinski_rate", np.nan)))
-        data["total_mc_rate"].append(
-            float(getattr(elem, "total_mc_rate", np.nan)))
-        data["ignored_rate"].append(
-            float(getattr(elem, "ignored_rate", np.nan)))
-
-        particles = None
-        if particles_by_element is not None:
-            particles = particles_by_element.get(nn)
-
-        if particles is None:
-            data["num_particles"].append(0)
-            data["num_lost_particles"].append(0)
-            data["sum_weight"].append(np.nan)
-            data["sum_lost_weight"].append(np.nan)
-        else:
-            lost = particles.filter(particles.state == 0)
-            data["num_particles"].append(len(particles.x))
-            data["num_lost_particles"].append(len(lost.x))
-            data["sum_weight"].append(float(np.sum(particles.weight)))
-            data["sum_lost_weight"].append(float(np.sum(lost.weight)))
-
-    for kk, vv in data.items():
-        data[kk] = np.array(vv)
-
-    return xt.Table(data)
-
-
-class TouschekCalculator:
-    '''
-    Internal helper that evaluates Piwinski scattering rates and integrates
-    them along the lattice.
-
-    This class is instantiated and owned by :class:`TouschekStudy`; it
-    should not be constructed directly by users.
-
-    Parameters
-    ----------
-    study : TouschekStudy
-        The owning study, from which beam parameters, optics, and the
-        local momentum acceptance table are read.
-
-    Attributes
-    ----------
-    twiss : xtrack.TwissTable or None
-        Twiss table for the ring.  Injected by
-        :meth:`TouschekStudy.initialise_touschek` before any rate
-        evaluation is performed.
-
-    References
-    ----------
-    .. [1] A. Piwinski, "The Touschek Effect in Strong Focusing Storage
-       Rings", arXiv:physics/9903034 (1999).
-    .. [2] A. Xiao and M. Borland, "Monte Carlo simulation of Touschek
-       effect", Phys. Rev. ST Accel. Beams **13**, 074201 (2010).
-       https://doi.org/10.1103/PhysRevSTAB.13.074201
-    .. [3] M. Borland, "elegant: A Flexible SDDS-Compliant Code for
-       Accelerator Simulation", APS LS-287 (2000).
-    '''
-    def __init__(self, study):
-        self.study = study
-        self.twiss = None
-
-    def _compute_piwinski_integral(self, tm, B1, B2):
-        """
-        Compute Piwinski integral for Touschek scattering rate calculation.
-
-        The integration variable is k, with t = tan(k)^2. The direct Piwinski
-        formula is written as an integral over t from tm to infinity; this
-        substitution gives dt = 2*tan(k)*(1 + tan(k)^2) dk and leaves the
-        integrand below with an overall factor 2 applied in the rate formula.
-        """
-        from math import atan, tan, sqrt, exp, log, pi
-
-        km = atan(sqrt(tm))
-
-        def int_piwinski(k):
-            t = np.tan(k) ** 2
-            fact = (
-                (2*t + 1)**2 * (t/tm / (1+t) - 1) / t + t - sqrt(t*tm * (1 + t))
-                - (2 + 1 / (2*t)) * log(t/tm / (1+t))
-            )
-            if B2 * t < 500:
-                intp = fact * exp(-B1*t) * i0(B2*t) * sqrt(1+t)
-            else:
-                intp = (
-                    fact
-                    * exp(B2*t - B1*t)
-                    / sqrt(2*pi * B2*t)
-                    * sqrt(1+t)
-                )
-            return intp
-
-        val, _ =  quad(
-            int_piwinski,
-            km,
-            pi / 2,
-            epsabs=1e-16,
-            epsrel=1e-12
-        )
-
-        return val
-
-    def _compute_piwinski_scattering_rate(self, element):
-        """
-        Compute Piwinski Touschek scattering rate.
-        """
-        p0c = self.study.particle_ref.p0c[0]
-        bunch_population = self.study.bunch_population
-        local_momentum_acceptance = self.study.local_momentum_acceptance
-        gemitt_x = self.study.gemitt_x
-        gemitt_y = self.study.gemitt_y
-        twiss = self.twiss
-        alfx = twiss['alfx', element]
-        betx = twiss['betx', element]
-        alfy = twiss['alfy', element]
-        bety = twiss['bety', element]
-        sigma_z = self.study.sigma_z
-        sigma_delta = self.study.sigma_delta
-        delta = twiss['delta', element]
-        dx = twiss['dx', element]
-        dpx = twiss['dpx', element]
-        dxt = alfx * dx + betx * dpx # dxt: dx tilde
-        dy = twiss['dy', element]
-        dpy = twiss['dpy', element]
-        dyt = alfy * dy + bety * dpy # dyt: dy tilde
-
-        try:
-            s = self.twiss.rows[element].s[0]
-        except:
-            s = self.study.line.get_s_position(element)
-
-        deltaN = np.interp(s, local_momentum_acceptance.s, local_momentum_acceptance.deltan)
-        deltaP = np.interp(s, local_momentum_acceptance.s, local_momentum_acceptance.deltap)
-
-        sigmab_x = np.sqrt(gemitt_x * betx) # Horizontal betatron beam size
-        sigma_x = np.sqrt(gemitt_x * betx + dx**2 * sigma_delta**2) # Horizontal beam size
-
-        sigmab_y = np.sqrt(gemitt_y * bety) # Vertical betatron beam size
-        sigma_y = np.sqrt(gemitt_y * bety + dy**2 * sigma_delta**2) # Vertical beam size
-
-        sigma_h = (sigma_delta**-2 + (dx**2 + dxt**2)/sigmab_x**2 + (dy**2 + dyt**2)/sigmab_y**2)**(-0.5)
-
-        p = p0c * (1 + delta)
-        gamma = np.sqrt(1 + p**2 / ELECTRON_MASS_EV**2)
-        beta = np.sqrt(1 - gamma**-2)
-
-        B1 = betx**2 / (2 * beta**2 * gamma**2 * sigmab_x**2) * (1 - sigma_h**2 * dxt**2 / sigmab_x**2) \
-             + bety**2 / (2 * beta**2 * gamma**2 * sigmab_y**2) * (1 - sigma_h**2 * dyt**2 / sigmab_y**2)
-
-        B2 = np.sqrt(B1**2 - betx**2 * bety**2 * sigma_h**2 / (beta**4 * gamma**4 * sigmab_x**4 * sigmab_y**4 * sigma_delta**2) \
-                             * (sigma_x**2 * sigma_y**2 - sigma_delta**4 * dx**2 * dy**2))
-
-        tmN = beta**2 * (deltaN**2)
-        tmP = beta**2 * (deltaP**2)
-
-        piwinski_integralN = self._compute_piwinski_integral(tmN, B1, B2)
-        piwinski_integralP = self._compute_piwinski_integral(tmP, B1, B2)
-
-        # Factor 2 comes from the t = tan(k)^2 substitution used in
-        # _compute_piwinski_integral; the manual formula is written directly in t.
-        rateN = CLASSICAL_ELECTRON_RADIUS**2 * C_LIGHT_VACUUM * bunch_population**2 \
-                / (8*np.pi * gamma**2 * sigma_z * np.sqrt(sigma_x**2 * sigma_y**2 - sigma_delta**4 * dx**2 * dy**2)) \
-                * 2 * np.sqrt(np.pi * (B1**2 - B2**2)) * piwinski_integralN
-
-        rateP = CLASSICAL_ELECTRON_RADIUS**2 * C_LIGHT_VACUUM * bunch_population**2 \
-                / (8*np.pi * gamma**2 * sigma_z * np.sqrt(sigma_x**2 * sigma_y**2 - sigma_delta**4 * dx**2 * dy**2)) \
-                * 2 * np.sqrt(np.pi * (B1**2 - B2**2)) * piwinski_integralP
-
-        rate = (rateN + rateP) / 2
-
-        return rate
-
-    def _compute_integrated_piwinski_rates(self, element):
-        """
-        Integrate the Piwinski Touschek scattering rate along the line using
-        the trapezoidal rule, between successive TouschekScattering elements.
-
-        For each TouschekScattering element, the method stores the integrated
-        rate per bunch over the preceding section of the line. This per-bunch
-        rate is later used to assign the correct weights to Touschek-scattered
-        particles at the corresponding element.
-        """
-        def _get_s(name):
-            try:
-                return tab.rows[name].s[0]
-            except (KeyError, AttributeError, IndexError, TypeError):
-                return self.study.line.get_s_position(name)
-            
-        def _step(name, s_before, rate_before, integrated):
-            s = _get_s(name)
-            ds = s - s_before
-            if ds > 0.0:
-                rate = self._compute_piwinski_scattering_rate(name)
-                integrated += 0.5 * (rate_before + rate) * ds
-                return s, rate, integrated
-            else:
-                return s_before, rate_before, integrated
-
-        line = self.study.line
-        tab = line.get_table()
-        line_length = float(self.twiss.line_length)
-
-        # Indexes of the TouschekScatterings
-        ii_t = [
-            ii for ii, nn in enumerate(tab.name[:-1])
-            if isinstance(line[nn], TouschekScattering)
-        ]
-
-        integrated = 0.0
-
-        if element is None:
-            ii_current = 0
-            s0 = 0.0
-            r0 = self._compute_piwinski_scattering_rate(tab.name[0])
-        else:
-            import re
-            ii_current = int(re.search(r'\d+', element).group())
-            tscatter_before = tab.name[ii_t[ii_current - 1]] if ii_current != 0 else tab.name[0]
-            s0 = _get_s(tscatter_before)
-            r0 = self._compute_piwinski_scattering_rate(tscatter_before)
-
-        s_before = s0
-        rate_before = r0
-
-        if element is None:
-            # Configure all the TouschekScattering elements
-            for ii, nn in enumerate(tab.name):
-                s_before, rate_before, integrated = _step(nn, s_before, rate_before, integrated)
-
-                if ii == ii_t[ii_current]:
-                    # Divide by the circumference to get the section contribution
-                    # to the ring-averaged per-bunch rate.
-                    integrated_piwinski_rate = integrated / line_length
-                    elem = line[nn] # TouschekScattering
-                    # print(f'Integrated Piwinski rate at {nn}: {integrated_piwinski_rate*1e-3} [kHz]')
-                    elem._configure(integrated_piwinski_rate=integrated_piwinski_rate)
-                    integrated = 0.0
-                    ii_current += 1
-                    if ii_current == len(ii_t):
-                        break
-        else:
-            # Configure only the TouschekScattering element named `element`
-            subtab = tab.rows[tscatter_before:element]
-            for nn in subtab.name:
-                s_before, rate_before, integrated = _step(nn, s_before, rate_before, integrated)
-
-                if nn == element:
-                    # Divide by the circumference to get the section contribution
-                    # to the ring-averaged per-bunch rate.
-                    integrated_piwinski_rate = integrated / line_length
-                    elem = line[nn] # TouschekScattering
-                    # print(f'Integrated Piwinski rate at {nn}: {integrated_piwinski_rate*1e-3} [kHz]')
-                    elem._configure(integrated_piwinski_rate=integrated_piwinski_rate)
-                    break
-
-
 class TouschekStudy:
     '''
     Configured Touschek study attached to an xtrack Line.
@@ -444,9 +157,6 @@ class TouschekStudy:
         Phase-space sampling truncation parameters.
     seed : int
         RNG seed.
-    touschek : TouschekCalculator
-        The calculator instance used internally to evaluate Piwinski rates.
-
     References
     ----------
     .. [1] A. Xiao and M. Borland, "Monte Carlo simulation of Touschek
@@ -582,7 +292,230 @@ class TouschekStudy:
 
         self.kwargs = kwargs
 
-        self.touschek = TouschekCalculator(self)
+    @staticmethod
+    def _compute_piwinski_integral(tm, B1, B2):
+        """
+        Compute Piwinski integral for Touschek scattering rate calculation.
+
+        The integration variable is k, with t = tan(k)^2. The direct Piwinski
+        formula is written as an integral over t from tm to infinity; this
+        substitution gives dt = 2*tan(k)*(1 + tan(k)^2) dk and leaves the
+        integrand below with an overall factor 2 applied in the rate formula.
+        """
+        from math import atan, sqrt, exp, log, pi
+
+        km = atan(sqrt(tm))
+
+        def int_piwinski(k):
+            t = np.tan(k) ** 2
+            fact = (
+                (2*t + 1)**2 * (t/tm / (1+t) - 1) / t
+                + t
+                - sqrt(t*tm * (1 + t))
+                - (2 + 1 / (2*t)) * log(t/tm / (1+t))
+            )
+            if B2 * t < 500:
+                intp = fact * exp(-B1*t) * i0(B2*t) * sqrt(1+t)
+            else:
+                intp = (
+                    fact
+                    * exp(B2*t - B1*t)
+                    / sqrt(2*pi * B2*t)
+                    * sqrt(1+t)
+                )
+            return intp
+
+        val, _ = quad(
+            int_piwinski,
+            km,
+            pi / 2,
+            epsabs=1e-16,
+            epsrel=1e-12,
+        )
+
+        return val
+
+    def _compute_piwinski_scattering_rate(self, element):
+        """
+        Compute Piwinski Touschek scattering rate.
+        """
+        p0c = self.particle_ref.p0c[0]
+        bunch_population = self.bunch_population
+        local_momentum_acceptance = self.local_momentum_acceptance
+        gemitt_x = self.gemitt_x
+        gemitt_y = self.gemitt_y
+        twiss = self.twiss
+        alfx = twiss['alfx', element]
+        betx = twiss['betx', element]
+        alfy = twiss['alfy', element]
+        bety = twiss['bety', element]
+        sigma_z = self.sigma_z
+        sigma_delta = self.sigma_delta
+        delta = twiss['delta', element]
+        dx = twiss['dx', element]
+        dpx = twiss['dpx', element]
+        dxt = alfx * dx + betx * dpx # dxt: dx tilde
+        dy = twiss['dy', element]
+        dpy = twiss['dpy', element]
+        dyt = alfy * dy + bety * dpy # dyt: dy tilde
+
+        try:
+            s = twiss.rows[element].s[0]
+        except Exception:
+            s = self.line.get_s_position(element)
+
+        deltaN = np.interp(
+            s, local_momentum_acceptance.s, local_momentum_acceptance.deltan)
+        deltaP = np.interp(
+            s, local_momentum_acceptance.s, local_momentum_acceptance.deltap)
+
+        sigmab_x = np.sqrt(gemitt_x * betx) # Horizontal betatron beam size
+        sigma_x = np.sqrt(gemitt_x * betx + dx**2 * sigma_delta**2)
+
+        sigmab_y = np.sqrt(gemitt_y * bety) # Vertical betatron beam size
+        sigma_y = np.sqrt(gemitt_y * bety + dy**2 * sigma_delta**2)
+
+        sigma_h = (
+            sigma_delta**-2
+            + (dx**2 + dxt**2)/sigmab_x**2
+            + (dy**2 + dyt**2)/sigmab_y**2
+        )**(-0.5)
+
+        p = p0c * (1 + delta)
+        gamma = np.sqrt(1 + p**2 / ELECTRON_MASS_EV**2)
+        beta = np.sqrt(1 - gamma**-2)
+
+        B1 = (
+            betx**2 / (2 * beta**2 * gamma**2 * sigmab_x**2)
+            * (1 - sigma_h**2 * dxt**2 / sigmab_x**2)
+            + bety**2 / (2 * beta**2 * gamma**2 * sigmab_y**2)
+            * (1 - sigma_h**2 * dyt**2 / sigmab_y**2)
+        )
+
+        B2 = np.sqrt(
+            B1**2
+            - betx**2 * bety**2 * sigma_h**2
+            / (beta**4 * gamma**4 * sigmab_x**4 * sigmab_y**4
+               * sigma_delta**2)
+            * (sigma_x**2 * sigma_y**2 - sigma_delta**4 * dx**2 * dy**2)
+        )
+
+        tmN = beta**2 * (deltaN**2)
+        tmP = beta**2 * (deltaP**2)
+
+        piwinski_integralN = self._compute_piwinski_integral(tmN, B1, B2)
+        piwinski_integralP = self._compute_piwinski_integral(tmP, B1, B2)
+
+        # Factor 2 comes from the t = tan(k)^2 substitution used in
+        # _compute_piwinski_integral; the manual formula is written directly in t.
+        rateN = (
+            CLASSICAL_ELECTRON_RADIUS**2 * C_LIGHT_VACUUM
+            * bunch_population**2
+            / (8*np.pi * gamma**2 * sigma_z
+               * np.sqrt(sigma_x**2 * sigma_y**2
+                         - sigma_delta**4 * dx**2 * dy**2))
+            * 2 * np.sqrt(np.pi * (B1**2 - B2**2))
+            * piwinski_integralN
+        )
+
+        rateP = (
+            CLASSICAL_ELECTRON_RADIUS**2 * C_LIGHT_VACUUM
+            * bunch_population**2
+            / (8*np.pi * gamma**2 * sigma_z
+               * np.sqrt(sigma_x**2 * sigma_y**2
+                         - sigma_delta**4 * dx**2 * dy**2))
+            * 2 * np.sqrt(np.pi * (B1**2 - B2**2))
+            * piwinski_integralP
+        )
+
+        return (rateN + rateP) / 2
+
+    def _compute_integrated_piwinski_rates(self, element):
+        """
+        Integrate the Piwinski Touschek scattering rate along the line using
+        the trapezoidal rule, between successive TouschekScattering elements.
+
+        For each TouschekScattering element, the method stores the integrated
+        rate per bunch over the preceding section of the line. This per-bunch
+        rate is later used to assign the correct weights to Touschek-scattered
+        particles at the corresponding element.
+        """
+        def _get_s(name):
+            try:
+                return tab.rows[name].s[0]
+            except (KeyError, AttributeError, IndexError, TypeError):
+                return self.line.get_s_position(name)
+            
+        def _step(name, s_before, rate_before, integrated):
+            s = _get_s(name)
+            ds = s - s_before
+            if ds > 0.0:
+                rate = self._compute_piwinski_scattering_rate(name)
+                integrated += 0.5 * (rate_before + rate) * ds
+                return s, rate, integrated
+            else:
+                return s_before, rate_before, integrated
+
+        line = self.line
+        tab = line.get_table()
+        line_length = float(self.twiss.line_length)
+
+        # Indexes of the TouschekScatterings
+        ii_t = [
+            ii for ii, nn in enumerate(tab.name[:-1])
+            if isinstance(line[nn], TouschekScattering)
+        ]
+
+        integrated = 0.0
+
+        if element is None:
+            ii_current = 0
+            s0 = 0.0
+            r0 = self._compute_piwinski_scattering_rate(tab.name[0])
+        else:
+            import re
+            ii_current = int(re.search(r'\d+', element).group())
+            tscatter_before = (
+                tab.name[ii_t[ii_current - 1]]
+                if ii_current != 0 else tab.name[0])
+            s0 = _get_s(tscatter_before)
+            r0 = self._compute_piwinski_scattering_rate(tscatter_before)
+
+        s_before = s0
+        rate_before = r0
+
+        if element is None:
+            # Configure all the TouschekScattering elements
+            for ii, nn in enumerate(tab.name):
+                s_before, rate_before, integrated = _step(
+                    nn, s_before, rate_before, integrated)
+
+                if ii == ii_t[ii_current]:
+                    # Divide by the circumference to get the section contribution
+                    # to the ring-averaged per-bunch rate.
+                    integrated_piwinski_rate = integrated / line_length
+                    elem = line[nn] # TouschekScattering
+                    elem._configure(
+                        integrated_piwinski_rate=integrated_piwinski_rate)
+                    integrated = 0.0
+                    ii_current += 1
+                    if ii_current == len(ii_t):
+                        break
+        else:
+            # Configure only the TouschekScattering element named `element`
+            subtab = tab.rows[tscatter_before:element]
+            for nn in subtab.name:
+                s_before, rate_before, integrated = _step(
+                    nn, s_before, rate_before, integrated)
+
+                if nn == element:
+                    # Divide by the circumference to get the section contribution
+                    # to the ring-averaged per-bunch rate.
+                    integrated_piwinski_rate = integrated / line_length
+                    elem = line[nn] # TouschekScattering
+                    elem._configure(
+                        integrated_piwinski_rate=integrated_piwinski_rate)
+                    break
 
     def initialise_touschek(self, element=None):
         '''
@@ -617,12 +550,9 @@ class TouschekStudy:
             twiss_method = self.kwargs.get("method", "6d")
             self.twiss = self.line.twiss(method=twiss_method)
 
-        # Pass the twiss to the TouschekCalculator
-        self.touschek.twiss = self.twiss
-
         import time
         t0 = time.time()
-        self.touschek._compute_integrated_piwinski_rates(element)
+        self._compute_integrated_piwinski_rates(element)
         print(f"Computed integrated piwinski rates in {time.time() - t0:.2f} s.")
 
         # Helper to config all fields to a single TouschekScattering
@@ -696,7 +626,7 @@ class TouschekStudy:
             ***********************************************************************************************
             """)
 
-            piwinski_rate = self.touschek._compute_piwinski_scattering_rate(nn)
+            piwinski_rate = self._compute_piwinski_scattering_rate(nn)
 
             elem = line[nn] # TouschekScattering
             element_index = line.element_names.index(nn)
@@ -749,11 +679,61 @@ class TouschekStudy:
         """
         Return an ``xt.Table`` with per-scattering-element diagnostics.
         """
-        return _touschek_local_rates(
-            line=self.line,
-            elements=self.elements,
-            particles_by_element=particles_by_element,
-        )
+        data = {
+            "name": [],
+            "s": [],
+            "deltaN": [],
+            "deltaP": [],
+            "piwinski_rate": [],
+            "integrated_piwinski_rate": [],
+            "total_mc_rate": [],
+            "ignored_rate": [],
+            "num_particles": [],
+            "num_lost_particles": [],
+            "sum_weight": [],
+            "sum_lost_weight": [],
+        }
+
+        tab = self.line.get_table()
+        for nn in self.elements:
+            elem = self.line[nn]
+            data["name"].append(nn)
+            if hasattr(elem, "s"):
+                s = elem.s
+            else:
+                s = tab["s", nn]
+            data["s"].append(float(s))
+            data["deltaN"].append(float(getattr(elem, "deltaN", np.nan)))
+            data["deltaP"].append(float(getattr(elem, "deltaP", np.nan)))
+            data["piwinski_rate"].append(
+                float(getattr(elem, "piwinski_rate", np.nan)))
+            data["integrated_piwinski_rate"].append(
+                float(getattr(elem, "integrated_piwinski_rate", np.nan)))
+            data["total_mc_rate"].append(
+                float(getattr(elem, "total_mc_rate", np.nan)))
+            data["ignored_rate"].append(
+                float(getattr(elem, "ignored_rate", np.nan)))
+
+            particles = None
+            if particles_by_element is not None:
+                particles = particles_by_element.get(nn)
+
+            if particles is None:
+                data["num_particles"].append(0)
+                data["num_lost_particles"].append(0)
+                data["sum_weight"].append(np.nan)
+                data["sum_lost_weight"].append(np.nan)
+            else:
+                lost = particles.filter(particles.state == 0)
+                data["num_particles"].append(len(particles.x))
+                data["num_lost_particles"].append(len(lost.x))
+                data["sum_weight"].append(float(np.sum(particles.weight)))
+                data["sum_lost_weight"].append(float(np.sum(lost.weight)))
+
+        for kk, vv in data.items():
+            data[kk] = np.array(vv)
+
+        return xt.Table(data)
 
     def generate_particles(self):
         """
