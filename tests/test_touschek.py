@@ -169,7 +169,7 @@ def _build_study(line, lma, twiss=None, *, n_simulated=int(1e6), **kwargs):
         bunch_population=BUNCH_POPULATION,
         n_simulated=n_simulated,
         nx=3, ny=3, nz=3,
-        ignored_portion=0.01,
+        weight_retention_fraction=0.99,
         seed=1997,
         method='4d',
     )
@@ -470,9 +470,10 @@ class TestTouschekScattering:
         assert self.el.total_mc_rate >= 0
 
     def test_ignored_rate_fraction(self):
-        """ignored_rate must equal ignored_portion * total_mc_rate."""
+        """ignored_rate stores the rate not represented by retained particles."""
         assert self.el.ignored_rate == pytest.approx(
-            self.el.ignored_portion * self.el.total_mc_rate, rel=1e-9)
+            (1 - self.el.weight_retention_fraction) * self.el.total_mc_rate,
+            rel=1e-9)
 
     def test_theta_log_populated(self):
         """theta_log must map particle IDs → scattering angles in (0, π)."""

@@ -12,7 +12,8 @@ from scipy.integrate import quad
 from scipy.special import i0
 from scipy.constants import physical_constants
 
-from ..beam_elements.touschek import TouschekScattering
+from ..beam_elements.touschek import (
+    TouschekScattering, _resolve_weight_retention_fraction)
 
 ELECTRON_MASS_EV = xt.ELECTRON_MASS_EV
 C_LIGHT_VACUUM = physical_constants['speed of light in vacuum'][0]
@@ -115,15 +116,16 @@ class TouschekStudy:
         deviation smaller than the LMA but with nonzero betatron amplitude
         are accepted. This avoids that particles that are eventually lost
         are not considered for tracking
-    ignored_portion : float, optional
-            Fraction of the total simulated scattering weight that is discarded
-            before tracking.  Only the highest-weight particles whose cumulative
-            weight reaches ``(1 - ignored_portion)`` of the total are retained
-            and tracked; the remaining low-weight, low-probability events are
-            dropped.  The default value of ``0.01`` retains 99 % of the total
-            weight while significantly reducing the number of particles that
-            must be tracked, providing a good accuracy–efficiency trade-off.
-            Setting this to ``0`` keeps all simulated particles.
+    weight_retention_fraction : float, optional
+        Fraction of the generated scattering weight to retain in the returned
+        particle sample. The highest-weight particles are retained until their
+        cumulative weight reaches approximately this fraction of the total
+        generated weight. The default value of ``0.99`` tracks particles
+        representing approximately 99 % of the generated scattering weight.
+        Values smaller than one reduce tracking cost by discarding the
+        lowest-weight tail, at the price of a controlled downward truncation
+        of the represented rate. Set to ``1.0`` to keep all generated
+        particles.
     seed : int, optional
         RNG seed for the ELEGANT-compatible 48-bit LCG generator used
         inside :class:`TouschekScattering`.  Default 1997.
@@ -170,7 +172,8 @@ class TouschekStudy:
                  nemitt_x=None, nemitt_y=None,
                  sigma_z=None, sigma_delta=None, bunch_population=None,
                  n_simulated=None, gemitt_x=None, gemitt_y=None,
-                 local_momentum_acceptance_scale=0.85, ignored_portion=0.01,
+                 local_momentum_acceptance_scale=0.85,
+                 weight_retention_fraction=None, ignored_portion=None,
                  seed=1997, nx=3, ny=3, nz=3, **kwargs):
 
         # Input validation
@@ -260,7 +263,10 @@ class TouschekStudy:
         self.sigma_delta = sigma_delta
         self.bunch_population = bunch_population
         self.n_simulated = n_simulated
-        self.ignored_portion = ignored_portion
+        self.weight_retention_fraction = _resolve_weight_retention_fraction(
+            weight_retention_fraction=weight_retention_fraction,
+            ignored_portion=ignored_portion,
+            default=0.99)
         self.seed = seed
         self.nx = nx
         self.ny = ny
@@ -651,7 +657,7 @@ class TouschekStudy:
                 n_simulated=self.n_simulated,
                 nx=self.nx, ny=self.ny, nz=nz_eff,
                 theta_min=self._theta_min, theta_max=self._theta_max,
-                ignored_portion=self.ignored_portion,
+                weight_retention_fraction=self.weight_retention_fraction,
                 piwinski_rate=piwinski_rate,
                 seed=self.seed, inhibit_permute=0
             )

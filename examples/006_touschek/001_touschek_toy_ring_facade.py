@@ -149,7 +149,7 @@ touschek = line.xfields.touschek_configure(
     bunch_population=bunch_population,
     n_simulated=n_simulated,
     nx=3, ny=3, nz=3,
-    ignored_portion=0.01,
+    weight_retention_fraction=0.99,
     seed=1997,
     method='4d',
 )

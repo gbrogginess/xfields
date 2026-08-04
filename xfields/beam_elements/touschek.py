@@ -6,6 +6,31 @@
 import xobjects as xo
 import xtrack as xt
 import numpy as np
+import warnings
+
+
+def _resolve_weight_retention_fraction(
+        *, weight_retention_fraction, ignored_portion, default):
+    if ignored_portion is not None:
+        if weight_retention_fraction is not None:
+            raise ValueError(
+                "Provide either `weight_retention_fraction` or "
+                "`ignored_portion`, not both.")
+        warnings.warn(
+            "`ignored_portion` is deprecated. Use "
+            "`weight_retention_fraction=1 - ignored_portion` instead.",
+            FutureWarning,
+            stacklevel=2)
+        weight_retention_fraction = 1.0 - ignored_portion
+
+    if weight_retention_fraction is None:
+        weight_retention_fraction = default
+
+    if not 0.0 < weight_retention_fraction <= 1.0:
+        raise ValueError(
+            "`weight_retention_fraction` must be in the interval (0, 1].")
+
+    return float(weight_retention_fraction)
 
 class TouschekScattering(xt.BeamElement):
     """
@@ -83,15 +108,14 @@ class TouschekScattering(xt.BeamElement):
     piwinski_rate : float, optional
         Local Piwinski scattering rate [Hz] evaluated at this element.
         Stored for diagnostics; not used in the Monte Carlo kernel.
-    ignored_portion : float, optional
-        Fraction of the total simulated scattering weight that is discarded
-        before tracking.  Only the highest-weight particles whose cumulative
-        weight reaches ``(1 - ignored_portion)`` of the total are retained
-        and tracked; the remaining low-weight, low-probability events are
-        dropped.  The default value of ``0.01`` retains 99 % of the total
-        weight while significantly reducing the number of particles that must
-        be tracked, providing a good accuracy–efficiency trade-off.
-        Setting this to ``0`` keeps all simulated particles.
+    weight_retention_fraction : float, optional
+        Fraction of the generated scattering weight to retain in the returned
+        particle sample. The highest-weight particles are retained until their
+        cumulative weight reaches approximately this fraction of the total
+        generated weight. The default value of ``1.0`` keeps all generated
+        particles. Values smaller than one reduce tracking cost by discarding
+        the lowest-weight tail, at the price of a controlled downward
+        truncation of the represented rate.
     integrated_piwinski_rate : float, optional
         Piwinski rate integrated (trapezoidal rule) over the lattice section
         preceding this element and divided by the line length to give the
@@ -116,8 +140,8 @@ class TouschekScattering(xt.BeamElement):
     ignored_rate : float
         Scattering rate [Hz] associated with the low-weight particles
         discarded by ``pickPart`` in the last call to :meth:`scatter`,
-        i.e. the fraction ``ignored_portion`` of ``total_mc_rate`` that
-        is not represented in the tracked particle set.
+        i.e. approximately ``(1 - weight_retention_fraction)`` times
+        ``total_mc_rate``.
     theta_log : dict
         Mapping ``{particle_id: theta}`` of centre-of-mass scattering
         angles [rad] for the particles returned by the last call to
@@ -145,12 +169,9 @@ class TouschekScattering(xt.BeamElement):
        :math:`\\delta` falls outside the LMA:
        :math:`\\delta < \\delta_N` or :math:`\\delta > \\delta_P`.
     7. ``pickPart`` retains only the highest-weight particles whose
-        cumulative weight reaches ``(1 - ignored_portion)`` of the
-        total simulated weight.  The remaining low-weight,
-        low-probability events are discarded.  With the default
-        ``ignored_portion = 0.01``, 99 % of the total weight is
-        retained, significantly reducing the number of particles
-        that must be tracked.
+        cumulative weight reaches approximately
+        ``weight_retention_fraction`` of the total simulated weight.
+        The remaining low-weight events are discarded.
 
     Macro-particle weights are normalised so that
     :math:`\\sum_i w_i` equals the per-turn loss rate in the
@@ -233,7 +254,8 @@ class TouschekScattering(xt.BeamElement):
                 n_simulated=0, nx=0.0, ny=0.0, nz=0.0,
                 theta_min=0.0, theta_max=0.0,
                 piwinski_rate=0.0,
-                ignored_portion=0.0,
+                weight_retention_fraction=None,
+                ignored_portion=None,
                 integrated_piwinski_rate=0.0,
                 seed=1997,
                 inhibit_permute=0,
@@ -279,11 +301,25 @@ class TouschekScattering(xt.BeamElement):
         self.nz = nz
         self.theta_min = theta_min
         self.theta_max = theta_max
-        self.ignored_portion = ignored_portion
+        self.weight_retention_fraction = _resolve_weight_retention_fraction(
+            weight_retention_fraction=weight_retention_fraction,
+            ignored_portion=ignored_portion,
+            default=1.0)
         self.integrated_piwinski_rate = integrated_piwinski_rate
         self.piwinski_rate = piwinski_rate
         self.seed = seed
         self.inhibit_permute = inhibit_permute
+
+    @property
+    def weight_retention_fraction(self):
+        return 1.0 - self.ignored_portion
+
+    @weight_retention_fraction.setter
+    def weight_retention_fraction(self, value):
+        if not 0.0 < value <= 1.0:
+            raise ValueError(
+                "`weight_retention_fraction` must be in the interval (0, 1].")
+        self.ignored_portion = 1.0 - float(value)
 
     def _configure(self, **kwargs):
         config_allowed = {
@@ -298,7 +334,7 @@ class TouschekScattering(xt.BeamElement):
             "sigma_z", "sigma_delta",
             "n_simulated", "nx", "ny", "nz",
             "theta_min", "theta_max",
-            "ignored_portion", "piwinski_rate",
+            "weight_retention_fraction", "ignored_portion", "piwinski_rate",
             "integrated_piwinski_rate",
             "seed", "inhibit_permute"
         }
@@ -308,6 +344,16 @@ class TouschekScattering(xt.BeamElement):
             bad = ", ".join(sorted(unknown))
             raise KeyError(f"Unsupported configure() keys: {bad}")
         
+        ignored_portion = kwargs.pop("ignored_portion", None)
+        weight_retention_fraction = kwargs.pop(
+            "weight_retention_fraction", None)
+        if (ignored_portion is not None
+                or weight_retention_fraction is not None):
+            self.weight_retention_fraction = _resolve_weight_retention_fraction(
+                weight_retention_fraction=weight_retention_fraction,
+                ignored_portion=ignored_portion,
+                default=self.weight_retention_fraction)
+
         for kk, vv in kwargs.items():
             setattr(self, kk, vv)
             if kk == "particle_ref":
@@ -371,7 +417,8 @@ class TouschekScattering(xt.BeamElement):
         self.theta_log = dict(zip(part_ids.astype(int), theta_out[:n].astype(float)))
 
         self.total_mc_rate = totalMCRate_out[0]
-        self.ignored_rate = self.ignored_portion * self.total_mc_rate
+        self.ignored_rate = (
+            1.0 - self.weight_retention_fraction) * self.total_mc_rate
 
         return part
 
