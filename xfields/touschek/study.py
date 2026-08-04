@@ -14,7 +14,7 @@ from scipy.constants import physical_constants
 
 from ..beam_elements.touschek import (
     TouschekScattering, _resolve_weight_retention_fraction,
-    _resolve_n_scattering_events)
+    _resolve_n_scattering_events, _resolve_bunch_intensity)
 
 ELECTRON_MASS_EV = xt.ELECTRON_MASS_EV
 C_LIGHT_VACUUM = physical_constants['speed of light in vacuum'][0]
@@ -93,7 +93,7 @@ class TouschekStudy:
         RMS bunch length [m].
     sigma_delta : float
         RMS relative momentum spread :math:`\\sigma_\\delta`.
-    bunch_population : float
+    bunch_intensity : float
         Number of real particles per bunch, :math:`N_b`.
     n_scattering_events : int
         Number of Touschek scattering events to generate per scattering
@@ -152,8 +152,8 @@ class TouschekStudy:
         The (scaled) LMA table.
     sigma_z, sigma_delta : float
         Bunch length [m] and momentum spread.
-    bunch_population : float
-        Bunch population :math:`N_b`.
+    bunch_intensity : float
+        Number of real particles per bunch, :math:`N_b`.
     n_scattering_events : int
         Number of Touschek scattering events generated per element.
     nx, ny, nz : float
@@ -171,7 +171,8 @@ class TouschekStudy:
     def __init__(self, line=None, elements=None, twiss=None,
                  local_momentum_acceptance=None,
                  nemitt_x=None, nemitt_y=None,
-                 sigma_z=None, sigma_delta=None, bunch_population=None,
+                 sigma_z=None, sigma_delta=None,
+                 bunch_intensity=None,
                  n_scattering_events=None, n_simulated=None,
                  gemitt_x=None, gemitt_y=None,
                  local_momentum_acceptance_scale=0.85,
@@ -189,8 +190,8 @@ class TouschekStudy:
             raise ValueError("`sigma_z` is required.")
         if sigma_delta is None:
             raise ValueError("`sigma_delta` is required.")
-        if bunch_population is None:
-            raise ValueError("`bunch_population` is required.")
+        if bunch_intensity is None:
+            raise ValueError("`bunch_intensity` is required.")
         if n_scattering_events is None and n_simulated is None:
             raise ValueError("`n_scattering_events` is required.")
 
@@ -263,7 +264,9 @@ class TouschekStudy:
 
         self.sigma_z = sigma_z
         self.sigma_delta = sigma_delta
-        self.bunch_population = bunch_population
+        self.bunch_intensity = _resolve_bunch_intensity(
+            bunch_intensity=bunch_intensity,
+            default=None)
         self.n_scattering_events = _resolve_n_scattering_events(
             n_scattering_events=n_scattering_events,
             n_simulated=n_simulated,
@@ -351,7 +354,7 @@ class TouschekStudy:
         Compute Piwinski Touschek scattering rate.
         """
         p0c = self.particle_ref.p0c[0]
-        bunch_population = self.bunch_population
+        bunch_intensity = self.bunch_intensity
         local_momentum_acceptance = self.local_momentum_acceptance
         gemitt_x = self.gemitt_x
         gemitt_y = self.gemitt_y
@@ -421,7 +424,7 @@ class TouschekStudy:
         # _compute_piwinski_integral; the manual formula is written directly in t.
         rateN = (
             CLASSICAL_ELECTRON_RADIUS**2 * C_LIGHT_VACUUM
-            * bunch_population**2
+            * bunch_intensity**2
             / (8*np.pi * gamma**2 * sigma_z
                * np.sqrt(sigma_x**2 * sigma_y**2
                          - sigma_delta**4 * dx**2 * dy**2))
@@ -431,7 +434,7 @@ class TouschekStudy:
 
         rateP = (
             CLASSICAL_ELECTRON_RADIUS**2 * C_LIGHT_VACUUM
-            * bunch_population**2
+            * bunch_intensity**2
             / (8*np.pi * gamma**2 * sigma_z
                * np.sqrt(sigma_x**2 * sigma_y**2
                          - sigma_delta**4 * dx**2 * dy**2))
@@ -646,7 +649,7 @@ class TouschekStudy:
                 s=s,
                 particle_ref=self.particle_ref,
                 element_index=element_index,
-                bunch_population=self.bunch_population,
+                bunch_intensity=self.bunch_intensity,
                 gemitt_x=self.gemitt_x,
                 gemitt_y=self.gemitt_y,
                 alfx=alfx, betx=betx,
@@ -816,7 +819,7 @@ class TouschekStudy:
         if loss_rate == 0:
             lifetime = np.inf
         else:
-            lifetime = float(self.bunch_population / loss_rate)
+            lifetime = float(self.bunch_intensity / loss_rate)
 
         local_rates = self.local_rates(
             particles_by_element=particles_by_element,

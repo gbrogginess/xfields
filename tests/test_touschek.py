@@ -19,7 +19,7 @@ NEMITT_X         = 1e-5
 NEMITT_Y         = 1e-7
 SIGMA_Z          = 4e-3
 SIGMA_DELTA      = 1e-3
-BUNCH_POPULATION = 4e9
+BUNCH_INTENSITY = 4e9
 
 
 #############################################################
@@ -166,7 +166,7 @@ def _build_study(line, lma, twiss=None, *, n_scattering_events=int(1e6), **kwarg
         nemitt_y=NEMITT_Y,
         sigma_z=SIGMA_Z,
         sigma_delta=SIGMA_DELTA,
-        bunch_population=BUNCH_POPULATION,
+        bunch_intensity=BUNCH_INTENSITY,
         n_scattering_events=n_scattering_events,
         nx=3, ny=3, nz=3,
         weight_retention_fraction=0.99,
@@ -227,7 +227,7 @@ class TestTouschekStudyInit:
                 line=None,
                 local_momentum_acceptance=_fresh_lma(toy_ring),
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
+                bunch_intensity=BUNCH_INTENSITY, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
@@ -241,12 +241,12 @@ class TestTouschekStudyInit:
                 line,
                 local_momentum_acceptance=_fresh_lma(toy_ring),
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
+                bunch_intensity=BUNCH_INTENSITY, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
     @pytest.mark.parametrize('missing_key', [
-        'sigma_z', 'sigma_delta', 'bunch_population', 'n_scattering_events',
+        'sigma_z', 'sigma_delta', 'bunch_intensity', 'n_scattering_events',
     ])
     def test_raises_on_missing_required_kwarg(self, toy_ring, missing_key):
         """Each required kwarg should raise ValueError when absent."""
@@ -254,7 +254,7 @@ class TestTouschekStudyInit:
         required = dict(
             local_momentum_acceptance=_fresh_lma(toy_ring),
             sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-            bunch_population=BUNCH_POPULATION, n_scattering_events=10,
+            bunch_intensity=BUNCH_INTENSITY, n_scattering_events=10,
             nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
         )
         kw = {k: v for k, v in required.items() if k != missing_key}
@@ -268,7 +268,7 @@ class TestTouschekStudyInit:
                 line,
                 local_momentum_acceptance=_fresh_lma(toy_ring),
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_simulated=10,
+                bunch_intensity=BUNCH_INTENSITY, n_simulated=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
         assert study.n_scattering_events == 10
@@ -287,7 +287,7 @@ class TestTouschekStudyInit:
                 line,
                 local_momentum_acceptance=_fresh_lma(toy_ring),
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
+                bunch_intensity=BUNCH_INTENSITY, n_scattering_events=10,
             )
 
     def test_raises_on_wrong_lma_type(self, toy_ring):
@@ -301,7 +301,7 @@ class TestTouschekStudyInit:
                 line,
                 local_momentum_acceptance=bad,
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
+                bunch_intensity=BUNCH_INTENSITY, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
@@ -316,7 +316,7 @@ class TestTouschekStudyInit:
                 line,
                 local_momentum_acceptance=bad,
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
+                bunch_intensity=BUNCH_INTENSITY, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
@@ -333,7 +333,7 @@ class TestTouschekStudyInit:
                 line,
                 local_momentum_acceptance=bad,
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
+                bunch_intensity=BUNCH_INTENSITY, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
@@ -347,7 +347,7 @@ class TestTouschekStudyInit:
                 bare,
                 local_momentum_acceptance=toy_ring['lma'],
                 sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
-                bunch_population=BUNCH_POPULATION, n_scattering_events=10,
+                bunch_intensity=BUNCH_INTENSITY, n_scattering_events=10,
                 nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
             )
 
@@ -398,7 +398,7 @@ class TestTouschekStudyInitialise:
     def test_beam_params_stored_correctly(self):
         for nn in self.tnames:
             el = self.line[nn]
-            assert el.bunch_population == pytest.approx(BUNCH_POPULATION)
+            assert el.bunch_intensity == pytest.approx(BUNCH_INTENSITY)
             assert el.sigma_z          == pytest.approx(SIGMA_Z)
             assert el.sigma_delta      == pytest.approx(SIGMA_DELTA)
 
@@ -415,13 +415,13 @@ class TestTouschekStudyInitialise:
     def test_partial_initialise_single_element(self):
         """
         Calling initialise_touschek(element=nn) should (re-)configure only
-        that element.  Doubling bunch_population must increase the rate
+        that element.  Doubling bunch_intensity must increase the rate
         because the Piwinski rate scales as N_b^2.
         """
         nn       = self.tnames[0]
         el       = self.line[nn]
         old_rate = el.integrated_piwinski_rate
-        self.study.bunch_population *= 2
+        self.study.bunch_intensity *= 2
         self.study.initialise_touschek(element=nn)
         assert el.integrated_piwinski_rate > old_rate
 

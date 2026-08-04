@@ -58,6 +58,19 @@ def _resolve_n_scattering_events(
     return int(n_scattering_events)
 
 
+def _resolve_bunch_intensity(*, bunch_intensity, default):
+    if bunch_intensity is None:
+        bunch_intensity = default
+
+    if bunch_intensity is None:
+        raise ValueError("`bunch_intensity` is required.")
+
+    if bunch_intensity < 0:
+        raise ValueError("`bunch_intensity` must be non-negative.")
+
+    return float(bunch_intensity)
+
+
 class TouschekScattering(xt.BeamElement):
     """
     Beam element that performs a Monte Carlo Touschek scattering simulation
@@ -84,8 +97,8 @@ class TouschekScattering(xt.BeamElement):
         Reference particle carrying.
     element_index : int, optional
         Index of this element in the line.
-    bunch_population : float, optional
-        Number of particles in one bunch.
+    bunch_intensity : float, optional
+        Number of physical particles in one bunch.
     alfx, betx : float, optional
         Horizontal Twiss parameters at the element.
     alfy, bety : float, optional
@@ -213,7 +226,7 @@ class TouschekScattering(xt.BeamElement):
 
     _xofields = {
         'p0c': xo.Float64,
-        'bunch_population': xo.Float64,
+        'bunch_intensity': xo.Float64,
         'gemitt_x': xo.Float64,
         'gemitt_y': xo.Float64,
         'alfx': xo.Float64,
@@ -268,7 +281,7 @@ class TouschekScattering(xt.BeamElement):
     def __init__(self, s=0.0,
                 particle_ref=xt.Particles(),
                 element_index=0,
-                bunch_population=0.0,
+                bunch_intensity=None,
                 alfx=0.0, betx=0.0, alfy=0.0, bety=0.0,
                 dx=0.0, dpx=0.0, dy=0.0, dpy=0.0,
                 x_co=0.0, px_co=0.0, y_co=0.0, py_co=0.0,
@@ -300,7 +313,9 @@ class TouschekScattering(xt.BeamElement):
         self.s = s
         self.particle_ref = particle_ref
         self.element_index = element_index
-        self.bunch_population = bunch_population
+        self.bunch_intensity = _resolve_bunch_intensity(
+            bunch_intensity=bunch_intensity,
+            default=0.0)
         self.alfx = alfx
         self.betx = betx
         self.alfy = alfy
@@ -363,7 +378,7 @@ class TouschekScattering(xt.BeamElement):
     def _configure(self, **kwargs):
         config_allowed = {
             "s", "particle_ref", "element_index",
-            "bunch_population",
+            "bunch_intensity",
             "gemitt_x", "gemitt_y",
             "alfx", "betx", "alfy", "bety",
             "dx", "dpx", "dy", "dpy",
@@ -400,6 +415,12 @@ class TouschekScattering(xt.BeamElement):
                 n_scattering_events=n_scattering_events,
                 n_simulated=n_simulated,
                 default=self.n_scattering_events)
+
+        bunch_intensity = kwargs.pop("bunch_intensity", None)
+        if bunch_intensity is not None:
+            self.bunch_intensity = _resolve_bunch_intensity(
+                bunch_intensity=bunch_intensity,
+                default=self.bunch_intensity)
 
         for kk, vv in kwargs.items():
             setattr(self, kk, vv)

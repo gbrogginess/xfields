@@ -18,7 +18,7 @@ nemitt_y = 1e-7
 sigma_z = 4e-3
 sigma_delta = 1e-3
 
-bunch_population = 4e9
+bunch_intensity = 4e9
 
 ######################################################
 # Build a toy ring
@@ -155,7 +155,7 @@ touschek = xf.TouschekStudy(
     nemitt_y=nemitt_y,
     sigma_z=sigma_z,
     sigma_delta=sigma_delta,
-    bunch_population=bunch_population,
+    bunch_intensity=bunch_intensity,
     n_scattering_events=n_scattering_events,
     nx=3, ny=3, nz=3,
     weight_retention_fraction=0.99,

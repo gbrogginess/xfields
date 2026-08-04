@@ -285,7 +285,7 @@ void TouschekScatter(TouschekScatteringData el,
                      int64_t* n_selected_out){
 
     const double p0c   = TouschekScatteringData_get_p0c(el);
-    const double bunch_population = TouschekScatteringData_get_bunch_population(el);
+    const double bunch_intensity = TouschekScatteringData_get_bunch_intensity(el);
     const double gemitt_x = TouschekScatteringData_get_gemitt_x(el);
     const double gemitt_y = TouschekScatteringData_get_gemitt_y(el);
     const double alfx  = TouschekScatteringData_get_alfx(el);
@@ -336,7 +336,7 @@ void TouschekScatter(TouschekScatteringData el,
     double weight_limit, weight_ave, wTotal;
 
     const double sigxyz = sqrt(twissBeta[0]*gemitt[0]) * sqrt(twissBeta[1]*gemitt[1]) * sigma_z;
-    temp = POW2(bunch_population) * POW2(PI) * POW2(RADIUS_ELECTRON) * C_LIGHT / 4.;
+    temp = POW2(bunch_intensity) * POW2(PI) * POW2(RADIUS_ELECTRON) * C_LIGHT / 4.;
     double factor = temp * pow(range[0], 3.0) * pow(range[1], 3.0) * pow(range[2], 3.0) / pow(2 * PI, 6.0) / sigxyz;
 
     double *xtemp      = (double*)malloc(sizeof(double) * n_simulated);
