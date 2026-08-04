@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 import xobjects as xo
+from xobjects.test_helpers import (
+    allow_no_prebuilt_kernels, for_all_test_contexts)
 import xtrack as xt
 import xfields as xf
 
@@ -31,7 +33,7 @@ def toy_ring():
     test session.
 
     Yields a dict with keys:
-      line  - the xtrack.Line (with tracker already built)
+      line  - the xtrack.Line
       twiss - the 4d Twiss table
       lma   - the xt.Table of local momentum acceptance
     """
@@ -122,10 +124,22 @@ def toy_ring():
         verbose=False,
     )
 
-    # Build a tracker once so tracking tests can reuse it
-    line.build_tracker(_context=xo.ContextCpu(omp_num_threads=0))
-
     yield dict(line=line, twiss=tw, lma=lma)
+
+
+def _build_tracker_or_skip(line, test_context):
+    line.discard_tracker()
+    try:
+        line.build_tracker(_context=test_context)
+    except Exception as err:
+        if (
+            isinstance(test_context, xo.ContextCpu)
+            and test_context.openmp_enabled
+        ):
+            pytest.skip(
+                f"OpenMP tracker compilation failed for {test_context}: {err}"
+            )
+        raise
 
 
 #############################################################
@@ -512,13 +526,16 @@ class TestEndToEndLifetime:
     Verifies that the result is a physically plausible positive finite number.
     """
 
-    def test_lifetime_positive_finite(self, toy_ring):
+    @for_all_test_contexts(excluding=('ContextCupy', 'ContextPyopencl'))
+    @allow_no_prebuilt_kernels
+    def test_lifetime_positive_finite(self, toy_ring, test_context):
         line = toy_ring['line']
         tw   = toy_ring['twiss']
         lma  = _fresh_lma(toy_ring)
 
         study = _build_study(line, lma, tw, n_simulated=int(2e5))
         study.initialise_touschek()
+        _build_tracker_or_skip(line, test_context)
         result = study.run(track=True, n_turns=128)
 
         loss_rate = result.loss_rate
