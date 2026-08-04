@@ -98,8 +98,7 @@ lma = xt.Table({
     'delta_pos': np.full(len(touschek_names), 0.012),
 })
 
-touschek = xf.TouschekStudy(
-    line,
+touschek = line.xfields.touschek_configure(
     twiss=twiss,
     local_momentum_acceptance=lma,
     local_momentum_acceptance_scale=0.85,
@@ -116,7 +115,6 @@ touschek = xf.TouschekStudy(
     seed=1997,
     method='4d',
 )
-touschek.initialise_touschek()
 
 xfields_local_rates = np.array([
     line[name].piwinski_rate for name in touschek_names
@@ -213,7 +211,10 @@ with np.load(
     scatter_reference = {name: data[name].copy() for name in data.files}
 
 # TS0 has zero section weight. Generate one fixed-seed sample at TS1--TS8.
-particles = [line[name].scatter() for name in touschek_names[1:]]
+scatter_result = touschek.run(track=False, generate_particles=True)
+particles = [
+    scatter_result.particles_by_element[name] for name in touschek_names[1:]
+]
 
 
 def xfields_summary(quantity):

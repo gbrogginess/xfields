@@ -61,8 +61,7 @@ def _build_reference_study(reference_rows):
         'delta_neg': np.full(len(names), -0.012),
         'delta_pos': np.full(len(names), 0.012),
     })
-    study = xf.TouschekStudy(
-        line,
+    touschek = line.xfields.touschek_configure(
         twiss=twiss,
         local_momentum_acceptance=lma,
         local_momentum_acceptance_scale=0.85,
@@ -79,8 +78,7 @@ def _build_reference_study(reference_rows):
         seed=1997,
         method='4d',
     )
-    study.initialise_touschek()
-    return line, names
+    return line, names, touschek
 
 
 @pytest.fixture(scope='module')
@@ -89,12 +87,12 @@ def elegant_comparison():
         reference_rows = list(csv.DictReader(stream))
     with (REFERENCE_DIR / 'reference_summary.json').open() as stream:
         reference_summary = json.load(stream)
-    line, names = _build_reference_study(reference_rows)
-    return line, names, reference_rows, reference_summary
+    line, names, touschek = _build_reference_study(reference_rows)
+    return line, names, touschek, reference_rows, reference_summary
 
 
 def test_local_piwinski_rates_against_elegant(elegant_comparison):
-    line, names, reference_rows, _ = elegant_comparison
+    line, names, _, reference_rows, _ = elegant_comparison
     xfields_rates = np.array([line[name].piwinski_rate for name in names])
     elegant_rates = np.array([
         float(row['piwinski_local_rate_hz']) for row in reference_rows
@@ -107,7 +105,7 @@ def test_local_piwinski_rates_against_elegant(elegant_comparison):
 
 
 def test_total_rate_and_lifetime_against_elegant(elegant_comparison):
-    line, names, _, reference_summary = elegant_comparison
+    line, names, _, _, reference_summary = elegant_comparison
     total_rate = sum(line[name].integrated_piwinski_rate for name in names)
     lifetime = 4e9 / total_rate
 
@@ -119,9 +117,10 @@ def test_total_rate_and_lifetime_against_elegant(elegant_comparison):
 
 @pytest.fixture(scope='module')
 def scattered_distribution(elegant_comparison):
-    line, names, _, _ = elegant_comparison
+    _, names, touschek, _, _ = elegant_comparison
     # TS0 represents a zero-length section and has zero particle weight.
-    particles = [line[name].scatter() for name in names[1:]]
+    result = touschek.run(track=False, generate_particles=True)
+    particles = [result.particles_by_element[name] for name in names[1:]]
     with np.load(
             REFERENCE_DIR / 'scattered_distribution_reference.npz') as data:
         reference = {name: data[name].copy() for name in data.files}

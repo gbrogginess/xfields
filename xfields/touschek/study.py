@@ -745,11 +745,12 @@ class TouschekStudy:
                 data["sum_weight"].append(np.nan)
                 data["sum_lost_weight"].append(np.nan)
             else:
-                lost = particles.filter(particles.state == 0)
+                lost_mask = particles.state == 0
                 data["num_particles"].append(len(particles.x))
-                data["num_lost_particles"].append(len(lost.x))
+                data["num_lost_particles"].append(int(np.sum(lost_mask)))
                 data["sum_weight"].append(float(np.sum(particles.weight)))
-                data["sum_lost_weight"].append(float(np.sum(lost.weight)))
+                data["sum_lost_weight"].append(
+                    float(np.sum(particles.weight[lost_mask])))
 
         for kk, vv in data.items():
             data[kk] = np.array(vv)
