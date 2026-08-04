@@ -252,9 +252,9 @@ xfields_scatter = {name: xfields_summary(name) for name in quantities}
 elegant_scatter = {name: elegant_summary(name) for name in quantities}
 
 assert np.sum(np.abs(
-    xfields_scatter['delta'][0] - elegant_scatter['delta'][0])) < 0.25
+    xfields_scatter['delta'][0] - elegant_scatter['delta'][0])) < 0.02
 np.testing.assert_allclose(
-    xfields_scatter['delta'][1][2], elegant_scatter['delta'][1][2], rtol=0.05)
+    xfields_scatter['delta'][1][2], elegant_scatter['delta'][1][2], rtol=0.02)
 
 fig_scatter, scatter_axes = plt.subplots(2, 2, figsize=(11, 8))
 scatter_axes = scatter_axes.ravel()
