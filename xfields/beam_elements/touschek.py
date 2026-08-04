@@ -132,17 +132,15 @@ class TouschekScattering(xt.BeamElement):
         Number of Touschek scattering events to generate in the Monte Carlo
         loop. Larger values reduce statistical noise but increase CPU time.
     nx, ny, nz : float, optional
-        Truncation of the Gaussian distribution in units of
-        :math:`\\sqrt{\\varepsilon}` for the transverse planes and
-        :math:`\\sigma` for the longitudinal plane.  The sampling window is
-        :math:`\\pm n_x \\sqrt{\\varepsilon_x}`, etc.  ``nz`` may be
-        reduced automatically by :class:`TouschekStudy` to prevent
-        particles being drawn outside the LMA before scattering.
+        Truncation of the Gaussian distribution in the transverse and
+        longitudinal planes. ``nz`` may be reduced automatically by
+        :class:`TouschekStudy` to prevent particles being drawn outside the
+        LMA before scattering.
     theta_min, theta_max : float, optional
         Lower and upper limits of the centre-of-mass scattering angle
-        :math:`\\theta^*` [rad].  In practice set to
-        :math:`0.00005\\pi` and :math:`0.99995\\pi` to avoid the
-        forward/backward divergence of the Møller cross-section.
+        ``theta`` [rad]. In practice set to ``0.00005 * pi`` and
+        ``0.99995 * pi`` to avoid the forward/backward divergence of the
+        Møller cross-section.
     piwinski_rate : float, optional
         Local Piwinski scattering rate [Hz] evaluated at this element.
         Stored for diagnostics; not used in the Monte Carlo kernel.
@@ -193,27 +191,27 @@ class TouschekScattering(xt.BeamElement):
 
     1. Two particles are drawn from the local 6-D Gaussian distribution
        using ``selectPartGauss`` with a truncated range of
-       :math:`\\pm n \\sqrt{\\varepsilon}`.
+       ``nx``, ``ny``, and ``nz``.
     2. The pair is boosted to the centre-of-mass (CM) frame
        (``bunch2cm``).
-    3. A scattering angle :math:`\\theta^*` is drawn uniformly in
-       :math:`[\\theta_{\\min},\\,\\theta_{\\max}]` and a random azimuthal
-       angle :math:`\\phi` is drawn uniformly in :math:`[0,\\,\\pi]`.
+    3. A scattering angle ``theta`` is drawn uniformly between
+       ``theta_min`` and ``theta_max``, and a random azimuthal angle ``phi``
+       is drawn uniformly between ``0`` and ``pi``.
     4. The Møller cross-section ``moeller`` is evaluated at
-       :math:`\\theta^*`.
+       ``theta``.
     5. Scattered momenta are rotated (``eulertrans``) and boosted back to
        the lab frame (``cm2bunch``).
     6. A particle is selected for tracking only if its resulting
-       :math:`\\delta` falls outside the LMA:
-       :math:`\\delta < \\delta_N` or :math:`\\delta > \\delta_P`.
+       ``delta`` falls outside the LMA:
+       ``delta < delta_neg`` or ``delta > delta_pos``.
     7. ``pickPart`` retains only the highest-weight particles whose
         cumulative weight reaches approximately
         ``weight_retention_fraction`` of the total simulated weight.
         The remaining low-weight events are discarded.
 
     Macro-particle weights are normalised so that
-    :math:`\\sum_i w_i` equals the per-turn loss rate in the
-    corresponding lattice section (in particles/turn).
+    the sum of ``weight`` equals the per-turn loss rate in the corresponding
+    lattice section (in particles/turn).
 
     References
     ----------

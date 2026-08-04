@@ -73,9 +73,8 @@ class TouschekStudy:
         argument (default ``"6d"``).
     local_momentum_acceptance : xtrack.Table
         Table returned by ``line.get_local_momentum_acceptance()``.  Must
-        contain the columns ``name``, ``s``, ``delta_neg`` (negative LMA,
-        :math:`\\delta_N < 0`), and ``delta_pos`` (positive LMA,
-        :math:`\\delta_P > 0`).  Values are scaled in-place by
+        contain the columns ``name``, ``s``, ``delta_neg`` (negative LMA),
+        and ``delta_pos`` (positive LMA). Values are scaled in-place by
         ``local_momentum_acceptance_scale`` upon construction.
     nemitt_x : float, optional
         Horizontal normalised emittance [m·rad].  Mutually exclusive with
@@ -92,22 +91,22 @@ class TouschekStudy:
     sigma_z : float
         RMS bunch length [m].
     sigma_delta : float
-        RMS relative momentum spread :math:`\\sigma_\\delta`.
+        RMS relative momentum spread.
     bunch_intensity : float
-        Number of real particles per bunch, :math:`N_b`.
+        Number of real particles per bunch.
     n_scattering_events : int
         Number of Touschek scattering events to generate per scattering
         element. Larger values improve statistics at the cost of CPU time.
-        Values of :math:`10^6`–:math:`10^7` are typical.
+        Values of ``1e6`` to ``1e7`` are typical.
     nx : float, optional
         Truncation of the transverse-horizontal Gaussian sampling window in
-        units of :math:`\\sqrt{\\varepsilon_x}`.  Default 3.
+        units of the horizontal rms beam size. Default 3.
     ny : float, optional
         Truncation of the transverse-vertical Gaussian sampling window in
-        units of :math:`\\sqrt{\\varepsilon_y}`.  Default 3.
+        units of the vertical rms beam size. Default 3.
     nz : float, optional
         Truncation of the longitudinal Gaussian sampling window in units of
-        :math:`\\sigma_\\zeta` and :math:`\\sigma_\\delta`.  May be reduced 
+        ``sigma_z`` and ``sigma_delta``. May be reduced
         element-by-element (see Notes) to prevent drawing initial particles 
         outside the LMA.
         Default 3.
@@ -153,7 +152,7 @@ class TouschekStudy:
     sigma_z, sigma_delta : float
         Bunch length [m] and momentum spread.
     bunch_intensity : float
-        Number of real particles per bunch, :math:`N_b`.
+        Number of real particles per bunch.
     n_scattering_events : int
         Number of Touschek scattering events generated per element.
     nx, ny, nz : float
