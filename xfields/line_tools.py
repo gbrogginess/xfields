@@ -73,27 +73,3 @@ class XfieldsLineAPI:
         )
         study.initialise_touschek()
         return study
-
-    def touschek_run(self, *, local_momentum_acceptance, twiss=None,
-                     elements=None, track=False, n_turns=None,
-                     generate_particles=None, with_progress=False, **kwargs):
-        """
-        Configure and run a Touschek study.
-
-        This is a shortcut for simple scripts. For clearer staged workflows,
-        use ``study = line.xfields.touschek_configure(...)`` followed by
-        ``study.run(...)``.
-        """
-        study = self.touschek_configure(
-            local_momentum_acceptance=local_momentum_acceptance,
-            twiss=twiss,
-            elements=elements,
-            **kwargs,
-        )
-
-        return study.run(
-            track=track,
-            n_turns=n_turns,
-            generate_particles=generate_particles,
-            with_progress=with_progress,
-        )

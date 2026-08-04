@@ -135,15 +135,15 @@ Monte Carlo implementation details.
 
 The pytest comparison uses:
 
-- local nonzero Piwinski rates: relative tolerance 11%;
-- total integrated Piwinski rate: relative tolerance 5%;
+- local nonzero Piwinski rates: relative tolerance `1e-5`;
+- total integrated Piwinski rate: relative tolerance `1e-5`;
 - Touschek lifetime inferred as `bunch_intensity / total_rate`: relative
-  tolerance 5%.
+  tolerance `1e-5`.
 
-The deliberately simple ELEGANT and xtrack bend models do not produce
-identical optics. The measured differences for this frozen case are about
-10.2% at worst locally and 2.8% for the total rate. ELEGANT records a zero
-local Piwinski rate at the first zero-length `TSCATTER` section, so that entry
-is excluded from the local-rate comparison. Monte Carlo local rates, selected
-counts, retained weight sums, and particles are diagnostics only and are not
-asserted across codes.
+The xfields comparison places the `TouschekScattering` markers at the exact
+`s_m` positions stored in `reference.csv`. With matching marker locations, the
+measured differences for this frozen case are a few ppm locally and for the
+total rate. ELEGANT records a zero local Piwinski rate at the first zero-length
+`TSCATTER` section, so that entry is excluded from the local-rate comparison.
+Monte Carlo local rates, selected counts, retained weight sums, and particles
+are diagnostics only and are not asserted across codes.

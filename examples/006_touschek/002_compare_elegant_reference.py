@@ -24,9 +24,9 @@ REFERENCE_DIR = (
     / 'test_data' / 'touschek' / 'elegant_reference'
 )
 
-LOCAL_RATE_RTOL = 0.11
-TOTAL_RATE_RTOL = 0.05
-LIFETIME_RTOL = 0.05
+LOCAL_RATE_RTOL = 1e-5
+TOTAL_RATE_RTOL = 1e-5
+LIFETIME_RTOL = 1e-5
 
 NEMITT_X = 1e-5
 NEMITT_Y = 1e-7
@@ -77,23 +77,17 @@ line = env.new_line(components=[
 line.set_particle_ref('electron', p0c=1e9)
 line.configure_bend_model(core='full', edge=None)
 
-table = line.get_table()
-magnets = table.rows[
-    (table.element_type == 'Bend')
-    | (table.element_type == 'Quadrupole')
-]
 placements = []
-for index, name in enumerate(magnets.name):
+for index, row in enumerate(elegant_rows):
     env.elements[f'TS{index}'] = xf.TouschekScattering()
-    placements.append(env.place(f'TS{index}', at=0.0, from_=name))
-env.elements['TS8'] = xf.TouschekScattering()
-placements.append(env.place('TS8', at=table.s[-1]))
+    placements.append(env.place(f'TS{index}', at=float(row['s_m'])))
 line.insert(placements)
 
 twiss = line.twiss(method='4d')
 table = line.get_table()
 touschek_names = table.rows.match(element_type='TouschekScattering').name
 xfields_s = np.array([table['s', name] for name in touschek_names])
+np.testing.assert_allclose(xfields_s, elegant_s, atol=1e-12)
 
 # Use the same fixed +/-1.2% aperture as the frozen ELEGANT case. This avoids
 # dynamic-aperture tracking and isolates the Touschek rate comparison.

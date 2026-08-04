@@ -19,7 +19,7 @@ REFERENCE_DIR = (
 )
 
 
-def _build_reference_study():
+def _build_reference_study(reference_rows):
     env = xt.Environment()
     line = env.new_line(components=[
         env.new('qf1', xt.Quadrupole, length=0.3, k1=0.1),
@@ -42,25 +42,22 @@ def _build_reference_study():
     line.set_particle_ref('electron', p0c=1e9)
     line.configure_bend_model(core='full', edge=None)
 
-    table = line.get_table()
-    magnets = table.rows[
-        (table.element_type == 'Bend')
-        | (table.element_type == 'Quadrupole')
-    ]
     placements = []
-    for index, name in enumerate(magnets.name):
+    for index, row in enumerate(reference_rows):
         env.elements[f'TS{index}'] = xf.TouschekScattering()
-        placements.append(env.place(f'TS{index}', at=0.0, from_=name))
-    env.elements['TS8'] = xf.TouschekScattering()
-    placements.append(env.place('TS8', at=table.s[-1]))
+        placements.append(env.place(f'TS{index}', at=float(row['s_m'])))
     line.insert(placements)
 
     twiss = line.twiss(method='4d')
     table = line.get_table()
     names = table.rows.match(element_type='TouschekScattering').name
+    xfields_s = np.array([table['s', name] for name in names])
+    elegant_s = np.array([float(row['s_m']) for row in reference_rows])
+    np.testing.assert_allclose(xfields_s, elegant_s, atol=1e-12)
+
     lma = xt.Table({
         'name': names,
-        's': np.array([table['s', name] for name in names]),
+        's': xfields_s,
         'delta_neg': np.full(len(names), -0.012),
         'delta_pos': np.full(len(names), 0.012),
     })
@@ -92,7 +89,7 @@ def elegant_comparison():
         reference_rows = list(csv.DictReader(stream))
     with (REFERENCE_DIR / 'reference_summary.json').open() as stream:
         reference_summary = json.load(stream)
-    line, names = _build_reference_study()
+    line, names = _build_reference_study(reference_rows)
     return line, names, reference_rows, reference_summary
 
 
@@ -104,10 +101,9 @@ def test_local_piwinski_rates_against_elegant(elegant_comparison):
     ])
 
     # ELEGANT records zero at the first, zero-length TSCATTER section. The
-    # remaining local values differ slightly because the two codes use
-    # different bend maps and optics conventions for this deliberately simple
-    # ring. Eleven percent covers the observed maximum difference (~10.2%).
-    np.testing.assert_allclose(xfields_rates[1:], elegant_rates[1:], rtol=0.11)
+    # remaining local values agree to a few ppm for this fixed-aperture case.
+    np.testing.assert_allclose(
+        xfields_rates[1:], elegant_rates[1:], rtol=1e-5)
 
 
 def test_total_rate_and_lifetime_against_elegant(elegant_comparison):
@@ -116,6 +112,6 @@ def test_total_rate_and_lifetime_against_elegant(elegant_comparison):
     lifetime = 4e9 / total_rate
 
     assert total_rate == pytest.approx(
-        reference_summary['total_piwinski_rate_hz'], rel=0.05)
+        reference_summary['total_piwinski_rate_hz'], rel=1e-5)
     assert lifetime == pytest.approx(
-        reference_summary['touschek_lifetime_s'], rel=0.05)
+        reference_summary['touschek_lifetime_s'], rel=1e-5)
