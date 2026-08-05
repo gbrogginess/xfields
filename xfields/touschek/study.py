@@ -177,6 +177,14 @@ class TouschekStudy:
                  local_momentum_acceptance_scale=0.85,
                  weight_retention_fraction=None, ignored_portion=None,
                  seed=1997, nx=3, ny=3, nz=3, **kwargs):
+        """
+        Build a Touschek study and validate the supplied line, optics, beam
+        parameters, and local momentum acceptance table.
+
+        Prefer using ``line.xfields.touschek_configure(...)`` in user code; it
+        constructs this object and initialises the Touschek scattering elements
+        in one step.
+        """
 
         # Input validation
         if line is None:
@@ -304,6 +312,85 @@ class TouschekStudy:
             self.gemitt_y = gemitt_y
 
         self.kwargs = kwargs
+
+    def run(self, *, track=False, n_turns=None, generate_particles=None,
+            with_progress=False):
+        """
+        Run the configured Touschek rate or loss study.
+
+        If ``track`` is false and ``generate_particles`` is not requested, the
+        result is based on the integrated Piwinski rates configured on the
+        Touschek elements. If particles are generated, their weights are used
+        instead. If ``track`` is true, particles are generated and tracked from
+        each scattering element back to itself.
+        """
+        if track:
+            if generate_particles is False:
+                raise ValueError(
+                    "`generate_particles=False` is incompatible with "
+                    "`track=True`."
+                )
+            if n_turns is None:
+                raise ValueError("`n_turns` is required when `track=True`.")
+            generate_particles = True
+        elif generate_particles is None:
+            generate_particles = False
+
+        particles_by_element = {}
+        merged_particles = None
+        lost_particles = None
+
+        if generate_particles:
+            for nn in self.elements:
+                particles = self.line[nn].scatter()
+                if track:
+                    self.line.track(
+                        particles,
+                        ele_start=nn,
+                        ele_stop=nn,
+                        num_turns=n_turns,
+                        with_progress=with_progress,
+                    )
+                particles_by_element[nn] = particles
+
+            merged_particles = xt.Particles.merge(
+                list(particles_by_element.values()))
+            scattering_rate = float(np.sum(merged_particles.weight))
+        else:
+            scattering_rate = float(sum(
+                getattr(self.line[nn], "integrated_piwinski_rate")
+                for nn in self.elements
+            ))
+
+        if track:
+            lost_particles = merged_particles.filter(
+                merged_particles.state == 0)
+            loss_rate = float(np.sum(lost_particles.weight))
+        else:
+            loss_rate = scattering_rate
+
+        if loss_rate == 0:
+            lifetime = np.inf
+        else:
+            lifetime = float(self.bunch_intensity / loss_rate)
+
+        local_rates = self.local_rates(
+            particles_by_element=particles_by_element,
+        )
+
+        return TouschekResult(
+            study=self,
+            elements=self.elements,
+            local_momentum_acceptance=self.local_momentum_acceptance,
+            local_rates=local_rates,
+            scattering_rate=scattering_rate,
+            loss_rate=loss_rate,
+            lifetime=lifetime,
+            particles_by_element=particles_by_element,
+            particles=merged_particles,
+            lost_particles=lost_particles,
+            tracked=track,
+        )
 
     @staticmethod
     def _compute_piwinski_integral(tm, B1, B2):
@@ -767,82 +854,3 @@ class TouschekStudy:
             Mapping ``{element_name: xt.Particles}``.
         """
         return {nn: self.line[nn].scatter() for nn in self.elements}
-
-    def run(self, *, track=False, n_turns=None, generate_particles=None,
-            with_progress=False):
-        """
-        Run the configured Touschek rate or loss study.
-
-        If ``track`` is false and ``generate_particles`` is not requested, the
-        result is based on the integrated Piwinski rates configured on the
-        Touschek elements. If particles are generated, their weights are used
-        instead. If ``track`` is true, particles are generated and tracked from
-        each scattering element back to itself.
-        """
-        if track:
-            if generate_particles is False:
-                raise ValueError(
-                    "`generate_particles=False` is incompatible with "
-                    "`track=True`."
-                )
-            if n_turns is None:
-                raise ValueError("`n_turns` is required when `track=True`.")
-            generate_particles = True
-        elif generate_particles is None:
-            generate_particles = False
-
-        particles_by_element = {}
-        merged_particles = None
-        lost_particles = None
-
-        if generate_particles:
-            for nn in self.elements:
-                particles = self.line[nn].scatter()
-                if track:
-                    self.line.track(
-                        particles,
-                        ele_start=nn,
-                        ele_stop=nn,
-                        num_turns=n_turns,
-                        with_progress=with_progress,
-                    )
-                particles_by_element[nn] = particles
-
-            merged_particles = xt.Particles.merge(
-                list(particles_by_element.values()))
-            scattering_rate = float(np.sum(merged_particles.weight))
-        else:
-            scattering_rate = float(sum(
-                getattr(self.line[nn], "integrated_piwinski_rate")
-                for nn in self.elements
-            ))
-
-        if track:
-            lost_particles = merged_particles.filter(
-                merged_particles.state == 0)
-            loss_rate = float(np.sum(lost_particles.weight))
-        else:
-            loss_rate = scattering_rate
-
-        if loss_rate == 0:
-            lifetime = np.inf
-        else:
-            lifetime = float(self.bunch_intensity / loss_rate)
-
-        local_rates = self.local_rates(
-            particles_by_element=particles_by_element,
-        )
-
-        return TouschekResult(
-            study=self,
-            elements=self.elements,
-            local_momentum_acceptance=self.local_momentum_acceptance,
-            local_rates=local_rates,
-            scattering_rate=scattering_rate,
-            loss_rate=loss_rate,
-            lifetime=lifetime,
-            particles_by_element=particles_by_element,
-            particles=merged_particles,
-            lost_particles=lost_particles,
-            tracked=track,
-        )
