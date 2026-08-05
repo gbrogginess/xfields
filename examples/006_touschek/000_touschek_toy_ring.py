@@ -159,12 +159,14 @@ print(touschek.local_rates())
 result = touschek.run(
     track=True,
     n_turns=nturns,
+    keep_particles=True,
     with_progress=1,
 )
 
-print(f'Touschek scattering rate: {result.scattering_rate*1e-3:.3f} kHz')
-print(f'Touschek loss rate:       {result.loss_rate*1e-3:.3f} kHz')
-print(f'Touschek lifetime:        {result.lifetime/60:.2f} min')
+print(f'Touschek scattering rate: {result.rate_scattering*1e-3:.3f} kHz')
+print(f'Touschek tracking rate:   {result.rate_tracking*1e-3:.3f} kHz')
+print(f'Scattering lifetime:      {result.lifetime_scattering/60:.2f} min')
+print(f'Tracking lifetime:        {result.lifetime_tracking/60:.2f} min')
 
 ######################################################
 # Optional: refine loss locations
@@ -188,7 +190,7 @@ binwidth = 0.1
 
 plt.title(
     f'Toy ring Touschek loss map '
-    f'(Touschek lifetime: {result.lifetime/60:.2f} min)'
+    f'(Touschek lifetime: {result.lifetime_tracking/60:.2f} min)'
 )
 plt.hist(
     lost_particles.s,

@@ -26,60 +26,64 @@ class TouschekResult:
     """
     Result returned by :meth:`TouschekStudy.run`.
 
-    The result stores both the integrated scalar quantities and the optional
-    particle samples produced by the Touschek workflow. If tracking is not
-    requested, ``loss_rate`` is equal to ``scattering_rate`` and the lifetime
-    is computed directly from the scattering rate.
+    The result separates quantities inferred from the scattering model from
+    quantities obtained after tracking the generated particles. The particle
+    samples are optional and are stored only when :meth:`TouschekStudy.run` is
+    called with ``keep_particles=True``.
 
     Parameters
     ----------
-    study : TouschekStudy
-        Study object that produced the result.
-    elements : list
+    element_names : list
         Names of the Touschek scattering elements included in the result.
     local_momentum_acceptance : xtrack.Table
         Local momentum acceptance table used by the study.
     local_rates : xtrack.Table
-        Per-element diagnostics, including local Piwinski rates, integrated
-        rates, Monte Carlo rates, and optional particle counts.
-    scattering_rate : float
+        Per-element diagnostics table. It always contains ``name``, ``s``,
+        ``delta_neg``, ``delta_pos``, ``piwinski_rate``, and
+        ``integrated_piwinski_rate``. When particles are generated it also
+        contains ``total_mc_rate``, ``ignored_rate``, ``num_particles``, and
+        ``sum_weight``. When tracking is enabled it additionally contains
+        ``num_lost_particles`` and ``sum_lost_weight``.
+    rate_scattering : float
         Total Touschek scattering rate represented by the result [1/s].
-    loss_rate : float or None
-        Total Touschek loss rate [1/s]. If tracking is disabled, this is equal
-        to ``scattering_rate``.
-    lifetime : float or None
-        Touschek lifetime [s], computed as bunch intensity divided by
-        ``loss_rate``.
-    particles_by_element : dict
+    lifetime_scattering : float
+        Touschek lifetime inferred from ``rate_scattering`` [s].
+    rate_tracking : float or None
+        Weighted loss rate after tracking generated particles [1/s]. ``None``
+        when tracking is disabled.
+    lifetime_tracking : float or None
+        Touschek lifetime inferred from ``rate_tracking`` [s]. ``None`` when
+        tracking is disabled.
+    particles_by_element : dict or None
         Mapping ``{element_name: xtrack.Particles}`` with the generated
-        particles for each scattering element. Empty when particle generation
-        is disabled.
+        particles for each scattering element. ``None`` unless
+        ``keep_particles=True``.
     particles : xtrack.Particles or None
-        Merged generated particle sample. ``None`` when particle generation is
-        disabled.
+        Merged generated particle sample. ``None`` unless
+        ``keep_particles=True``.
     lost_particles : xtrack.Particles or None
-        Subset of ``particles`` lost during tracking. ``None`` when tracking is
-        disabled.
+        Subset of ``particles`` lost during tracking. ``None`` unless both
+        ``track=True`` and ``keep_particles=True``.
     tracked : bool
         Whether the generated particles were tracked to determine losses.
 
     Attributes
     ----------
-    study : TouschekStudy
-        Study object that produced the result.
-    elements : list
+    element_names : list
         Names of the Touschek scattering elements included in the result.
     local_momentum_acceptance : xtrack.Table
         Local momentum acceptance table used by the study.
     local_rates : xtrack.Table
-        Per-element diagnostics.
-    scattering_rate : float
+        Per-element diagnostics table.
+    rate_scattering : float
         Total Touschek scattering rate represented by the result [1/s].
-    loss_rate : float or None
-        Total Touschek loss rate [1/s].
-    lifetime : float or None
-        Touschek lifetime [s].
-    particles_by_element : dict
+    lifetime_scattering : float
+        Touschek lifetime inferred from ``rate_scattering`` [s].
+    rate_tracking : float or None
+        Weighted loss rate after tracking generated particles [1/s].
+    lifetime_tracking : float or None
+        Touschek lifetime inferred from ``rate_tracking`` [s].
+    particles_by_element : dict or None
         Generated particles keyed by scattering element name.
     particles : xtrack.Particles or None
         Merged generated particle sample.
@@ -88,17 +92,17 @@ class TouschekResult:
     tracked : bool
         Whether tracking was enabled in :meth:`TouschekStudy.run`.
     """
-    study: "TouschekStudy"
-    elements: list
+    element_names: list
     local_momentum_acceptance: xt.Table
     local_rates: xt.Table
-    scattering_rate: float
-    loss_rate: float | None
-    lifetime: float | None
-    particles_by_element: dict
-    particles: xt.Particles | None
-    lost_particles: xt.Particles | None
+    rate_scattering: float
+    lifetime_scattering: float
+    rate_tracking: float | None
+    lifetime_tracking: float | None
     tracked: bool
+    particles_by_element: dict | None = None
+    particles: xt.Particles | None = None
+    lost_particles: xt.Particles | None = None
 
 
 class TouschekStudy:
@@ -111,7 +115,7 @@ class TouschekStudy:
                  gemitt_x=None, gemitt_y=None,
                  local_momentum_acceptance_scale=0.85,
                  weight_retention_fraction=None, ignored_portion=None,
-                 seed=1997, nx=3, ny=3, nz=3, **kwargs):
+                 seed=None, nx=3, ny=3, nz=3, **kwargs):
         """
         Build a Touschek study and validate the supplied line, optics, beam
         parameters, and local momentum acceptance table.
@@ -127,11 +131,11 @@ class TouschekStudy:
 
         After construction, call :meth:`run` to obtain a
         :class:`TouschekResult`. With tracking disabled, :meth:`run` returns
-        the integrated scattering and loss rates, the Touschek lifetime, and a
-        per-element diagnostics table. With particle generation enabled, it
-        also returns weighted scattered particles; with tracking enabled, it
-        additionally returns the tracked loss rate and the lost-particle
-        sample.
+        the integrated scattering rate, the corresponding Touschek lifetime,
+        and a per-element diagnostics table. With tracking enabled, it also
+        returns the tracked loss rate and the corresponding lifetime. The
+        generated and lost particle samples are returned only when
+        ``keep_particles=True`` is passed to :meth:`run`.
 
         Parameters
         ----------
@@ -171,8 +175,11 @@ class TouschekStudy:
             generated particle sample.
         ignored_portion : float, optional
             Deprecated alias for ``1 - weight_retention_fraction``.
-        seed : int, optional
-            Seed for the random-number generator.
+        seed : int or None, optional
+            Seed for the random-number generator. If provided, the Touschek
+            Monte Carlo sequence is re-seeded at the first selected scattering
+            element. If ``None`` (default), the existing RNG stream is
+            continued.
         nx, ny, nz : float, optional
             Gaussian sampling cutoffs in the horizontal, vertical, and
             longitudinal planes.
@@ -321,15 +328,14 @@ class TouschekStudy:
         self.kwargs = kwargs
 
     def run(self, *, track=False, n_turns=None, generate_particles=None,
-            with_progress=False):
+            keep_particles=False, with_progress=False):
         """
         Run the configured Touschek rate or loss study.
 
-        If ``track`` is false and ``generate_particles`` is not requested, the
-        result is based on the integrated Piwinski rates configured on the
-        Touschek elements. If particles are generated, their weights are used
-        instead. If ``track`` is true, particles are generated and tracked from
-        each scattering element back to itself.
+        The scattering rate reported in the result is the integrated Piwinski
+        rate configured on the Touschek elements. If ``track`` is true,
+        particles are generated and tracked from each scattering element back
+        to itself to estimate the tracking-derived loss rate.
 
         Parameters
         ----------
@@ -343,15 +349,28 @@ class TouschekStudy:
             If ``True``, generate weighted scattered particles even when
             tracking is disabled. If ``None``, particles are generated only
             when ``track`` is ``True``.
+        keep_particles : bool, optional
+            If ``True``, store the generated particle samples in the returned
+            :class:`TouschekResult`. If ``False`` (default), particles are
+            generated and tracked as needed but are not retained in the result.
+            When tracking is disabled, setting ``keep_particles=True`` also
+            requests particle generation.
         with_progress : bool, optional
             Forwarded to :meth:`xtrack.Line.track` when tracking is enabled.
 
         Returns
         -------
         result : TouschekResult
-            Study result containing local rates, total scattering and loss
-            rates, lifetime, and any generated or lost particles.
+            Study result containing local rates, scattering rate and lifetime,
+            optional tracking-derived rate and lifetime, and optionally the
+            generated and lost particle samples.
         """
+        if keep_particles and generate_particles is False:
+            raise ValueError(
+                "`keep_particles=True` is incompatible with "
+                "`generate_particles=False`."
+            )
+
         if track:
             if generate_particles is False:
                 raise ValueError(
@@ -362,11 +381,15 @@ class TouschekStudy:
                 raise ValueError("`n_turns` is required when `track=True`.")
             generate_particles = True
         elif generate_particles is None:
-            generate_particles = False
+            generate_particles = keep_particles
 
         particles_by_element = {}
         merged_particles = None
         lost_particles = None
+        rate_scattering = float(sum(
+            getattr(self.line[nn], "integrated_piwinski_rate")
+            for nn in self.elements
+        ))
 
         if generate_particles:
             for nn in self.elements:
@@ -383,37 +406,43 @@ class TouschekStudy:
 
             merged_particles = xt.Particles.merge(
                 list(particles_by_element.values()))
-            scattering_rate = float(np.sum(merged_particles.weight))
-        else:
-            scattering_rate = float(sum(
-                getattr(self.line[nn], "integrated_piwinski_rate")
-                for nn in self.elements
-            ))
 
+        rate_tracking = None
+        lifetime_tracking = None
         if track:
             lost_particles = merged_particles.filter(
                 merged_particles.state == 0)
-            loss_rate = float(np.sum(lost_particles.weight))
-        else:
-            loss_rate = scattering_rate
+            rate_tracking = float(np.sum(lost_particles.weight))
+            if rate_tracking == 0:
+                lifetime_tracking = np.inf
+            else:
+                lifetime_tracking = float(
+                    self.bunch_intensity / rate_tracking)
 
-        if loss_rate == 0:
-            lifetime = np.inf
+        if rate_scattering == 0:
+            lifetime_scattering = np.inf
         else:
-            lifetime = float(self.bunch_intensity / loss_rate)
+            lifetime_scattering = float(self.bunch_intensity / rate_scattering)
 
         local_rates = self.local_rates(
-            particles_by_element=particles_by_element,
+            particles_by_element=(
+                particles_by_element if generate_particles else None),
+            include_tracking=track,
         )
 
+        if not keep_particles:
+            particles_by_element = None
+            merged_particles = None
+            lost_particles = None
+
         return TouschekResult(
-            study=self,
-            elements=self.elements,
+            element_names=list(self.elements),
             local_momentum_acceptance=self.local_momentum_acceptance,
             local_rates=local_rates,
-            scattering_rate=scattering_rate,
-            loss_rate=loss_rate,
-            lifetime=lifetime,
+            rate_scattering=rate_scattering,
+            lifetime_scattering=lifetime_scattering,
+            rate_tracking=rate_tracking,
+            lifetime_tracking=lifetime_tracking,
             particles_by_element=particles_by_element,
             particles=merged_particles,
             lost_particles=lost_particles,
@@ -689,6 +718,13 @@ class TouschekStudy:
         self._compute_integrated_piwinski_rates(element)
         print(f"Computed integrated piwinski rates in {time.time() - t0:.2f} s.")
 
+        if self.seed is None:
+            seeded_element = None
+        elif element is not None:
+            seeded_element = element
+        else:
+            seeded_element = self.elements[0]
+
         # Helper to config all fields to a single TouschekScattering
         def _config(nn):
             try:
@@ -793,7 +829,8 @@ class TouschekStudy:
                 theta_min=self._theta_min, theta_max=self._theta_max,
                 weight_retention_fraction=self.weight_retention_fraction,
                 piwinski_rate=piwinski_rate,
-                seed=self.seed, inhibit_permute=0
+                seed=self.seed if nn == seeded_element else None,
+                inhibit_permute=0
             )
 
         if element is None:
@@ -815,7 +852,7 @@ class TouschekStudy:
             print(f'Initialising TouschekScattering for {element}')
             _config(element)
 
-    def local_rates(self, *, particles_by_element=None):
+    def local_rates(self, *, particles_by_element=None, include_tracking=False):
         """
         Return an ``xt.Table`` with per-scattering-element diagnostics.
 
@@ -825,13 +862,21 @@ class TouschekStudy:
             Mapping from element name to the particles generated at that
             element. If provided, Monte Carlo particle counts and weight sums
             are included in the table.
+        include_tracking : bool, optional
+            If ``True``, include loss-count and lost-weight columns computed
+            from tracked particle states. This option is meaningful only when
+            ``particles_by_element`` is provided.
 
         Returns
         -------
         table : xtrack.Table
-            Table with local momentum acceptance, Piwinski rates, integrated
-            rates, Monte Carlo rates, and optional particle diagnostics for
-            each Touschek scattering element in the study.
+            Per-element diagnostics table. It always contains ``name``, ``s``,
+            ``delta_neg``, ``delta_pos``, ``piwinski_rate``, and
+            ``integrated_piwinski_rate``. If particles are provided, it also
+            contains ``total_mc_rate``, ``ignored_rate``, ``num_particles``,
+            and ``sum_weight``. If ``include_tracking`` is ``True``, it
+            additionally contains ``num_lost_particles`` and
+            ``sum_lost_weight``.
         """
         data = {
             "name": [],
@@ -840,13 +885,20 @@ class TouschekStudy:
             "delta_pos": [],
             "piwinski_rate": [],
             "integrated_piwinski_rate": [],
-            "total_mc_rate": [],
-            "ignored_rate": [],
-            "num_particles": [],
-            "num_lost_particles": [],
-            "sum_weight": [],
-            "sum_lost_weight": [],
         }
+        include_particles = particles_by_element is not None
+        if include_particles:
+            data.update({
+                "total_mc_rate": [],
+                "ignored_rate": [],
+                "num_particles": [],
+                "sum_weight": [],
+            })
+        if include_tracking:
+            data.update({
+                "num_lost_particles": [],
+                "sum_lost_weight": [],
+            })
 
         tab = self.line.get_table()
         for nn in self.elements:
@@ -863,27 +915,32 @@ class TouschekStudy:
                 float(getattr(elem, "piwinski_rate", np.nan)))
             data["integrated_piwinski_rate"].append(
                 float(getattr(elem, "integrated_piwinski_rate", np.nan)))
-            data["total_mc_rate"].append(
-                float(getattr(elem, "total_mc_rate", np.nan)))
-            data["ignored_rate"].append(
-                float(getattr(elem, "ignored_rate", np.nan)))
 
             particles = None
             if particles_by_element is not None:
                 particles = particles_by_element.get(nn)
 
-            if particles is None:
-                data["num_particles"].append(0)
-                data["num_lost_particles"].append(0)
-                data["sum_weight"].append(np.nan)
-                data["sum_lost_weight"].append(np.nan)
-            else:
-                lost_mask = particles.state == 0
-                data["num_particles"].append(len(particles.x))
-                data["num_lost_particles"].append(int(np.sum(lost_mask)))
-                data["sum_weight"].append(float(np.sum(particles.weight)))
-                data["sum_lost_weight"].append(
-                    float(np.sum(particles.weight[lost_mask])))
+            if include_particles:
+                data["total_mc_rate"].append(
+                    float(getattr(elem, "total_mc_rate", np.nan)))
+                data["ignored_rate"].append(
+                    float(getattr(elem, "ignored_rate", np.nan)))
+                if particles is None:
+                    data["num_particles"].append(0)
+                    data["sum_weight"].append(np.nan)
+                else:
+                    data["num_particles"].append(len(particles.x))
+                    data["sum_weight"].append(float(np.sum(particles.weight)))
+
+            if include_tracking:
+                if particles is None:
+                    data["num_lost_particles"].append(0)
+                    data["sum_lost_weight"].append(np.nan)
+                else:
+                    lost_mask = particles.state == 0
+                    data["num_lost_particles"].append(int(np.sum(lost_mask)))
+                    data["sum_lost_weight"].append(
+                        float(np.sum(particles.weight[lost_mask])))
 
         for kk, vv in data.items():
             data[kk] = np.array(vv)

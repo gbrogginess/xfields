@@ -211,7 +211,7 @@ with np.load(
     scatter_reference = {name: data[name].copy() for name in data.files}
 
 # TS0 has zero section weight. Generate one fixed-seed sample at TS1--TS8.
-scatter_result = touschek.run(track=False, generate_particles=True)
+scatter_result = touschek.run(track=False, keep_particles=True)
 particles = [
     scatter_result.particles_by_element[name] for name in touschek_names[1:]
 ]

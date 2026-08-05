@@ -9,6 +9,13 @@ import numpy as np
 import warnings
 
 
+_NO_SEED = -1
+
+
+def _resolve_seed(seed):
+    return _NO_SEED if seed is None else int(seed)
+
+
 def _resolve_weight_retention_fraction(
         *, weight_retention_fraction, ignored_portion, default):
     if ignored_portion is not None:
@@ -158,10 +165,10 @@ class TouschekScattering(xt.BeamElement):
         section contribution to the ring-averaged per-bunch rate [1/s].
         Set by :meth:`TouschekStudy.initialise_touschek`; used to weight
         the scattered macro-particles.
-    seed : int, optional
+    seed : int or None, optional
         Seed for the ELEGANT-compatible 48-bit LCG random number generator.
-        Using the same seed reproduces the ELEGANT Monte Carlo sequence
-        exactly.  Default 1997.
+        If not ``None``, the seed is applied when :meth:`scatter` is called.
+        If ``None``, the existing RNG stream is continued. Default ``None``.
     inhibit_permute : int, optional
         If non-zero, the random-order permutation step (``randomizeOrder``)
         is skipped.  Intended for reproducibility testing only.
@@ -294,7 +301,7 @@ class TouschekScattering(xt.BeamElement):
                 weight_retention_fraction=None,
                 ignored_portion=None,
                 integrated_piwinski_rate=0.0,
-                seed=1997,
+                seed=None,
                 inhibit_permute=0,
                 **kwargs):
         """
@@ -347,8 +354,9 @@ class TouschekScattering(xt.BeamElement):
         integrated_piwinski_rate : float, optional
             Piwinski rate integrated over the lattice section represented by
             this element.
-        seed : int, optional
-            Seed for the random-number generator.
+        seed : int or None, optional
+            Seed for the random-number generator. If ``None``, the existing
+            RNG stream is continued.
         inhibit_permute : int, optional
             If nonzero, skip the random-order permutation step in the Monte
             Carlo selection.
@@ -411,7 +419,7 @@ class TouschekScattering(xt.BeamElement):
             default=1.0)
         self.integrated_piwinski_rate = integrated_piwinski_rate
         self.piwinski_rate = piwinski_rate
-        self.seed = seed
+        self.seed = _resolve_seed(seed)
         self.inhibit_permute = inhibit_permute
 
     @property
@@ -511,6 +519,9 @@ class TouschekScattering(xt.BeamElement):
         if unknown:
             bad = ", ".join(sorted(unknown))
             raise KeyError(f"Unsupported configure() keys: {bad}")
+
+        if "seed" in kwargs:
+            kwargs["seed"] = _resolve_seed(kwargs["seed"])
         
         ignored_portion = kwargs.pop("ignored_portion", None)
         weight_retention_fraction = kwargs.pop(

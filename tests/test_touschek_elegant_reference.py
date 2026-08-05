@@ -119,7 +119,7 @@ def test_total_rate_and_lifetime_against_elegant(elegant_comparison):
 def scattered_distribution(elegant_comparison):
     _, names, touschek, _, _ = elegant_comparison
     # TS0 represents a zero-length section and has zero particle weight.
-    result = touschek.run(track=False, generate_particles=True)
+    result = touschek.run(track=False, keep_particles=True)
     particles = [result.particles_by_element[name] for name in names[1:]]
     with np.load(
             REFERENCE_DIR / 'scattered_distribution_reference.npz') as data:

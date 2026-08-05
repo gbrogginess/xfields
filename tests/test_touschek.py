@@ -429,6 +429,23 @@ class TestTouschekStudyInitialise:
         with pytest.raises(TypeError, match=r'string'):
             self.study.initialise_touschek(element=42)
 
+    def test_run_without_particles_returns_scalar_result(self):
+        result = self.study.run(track=False)
+
+        assert result.element_names == self.study.elements
+        assert result.rate_scattering > 0
+        assert result.lifetime_scattering > 0
+        assert result.rate_tracking is None
+        assert result.lifetime_tracking is None
+        assert result.particles_by_element is None
+        assert result.particles is None
+        assert result.lost_particles is None
+
+        cols = set(result.local_rates._col_names)
+        assert "integrated_piwinski_rate" in cols
+        assert "total_mc_rate" not in cols
+        assert "num_lost_particles" not in cols
+
 
 class TestTouschekScattering:
     """Tests for the TouschekScattering.scatter() method."""
@@ -552,8 +569,15 @@ class TestEndToEndLifetime:
         _build_tracker_or_skip(line, test_context)
         result = study.run(track=True, n_turns=128)
 
-        loss_rate = result.loss_rate
+        rate_tracking = result.rate_tracking
 
-        assert loss_rate > 0, 'No particles were lost — something is wrong'
+        assert rate_tracking > 0, 'No particles were lost — something is wrong'
 
-        assert np.isfinite(result.lifetime) and result.lifetime > 0
+        assert np.isfinite(result.lifetime_tracking)
+        assert result.lifetime_tracking > 0
+        assert np.isfinite(result.lifetime_scattering)
+        assert result.lifetime_scattering > 0
+        assert result.element_names == study.elements
+        assert result.particles_by_element is None
+        assert result.particles is None
+        assert result.lost_particles is None

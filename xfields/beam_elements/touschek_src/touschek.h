@@ -348,10 +348,13 @@ void TouschekScatter(TouschekScatteringData el,
     double *thetatemp  = (double*)malloc(sizeof(double) * n_simulated);
 
     static int seeded_once = 0;
-    if (!seeded_once){
-        long  seed = TouschekScatteringData_get_seed(el);
-        short inhibit = (short)TouschekScatteringData_get_inhibit_permute(el);
+    long seed = TouschekScatteringData_get_seed(el);
+    short inhibit = (short)TouschekScatteringData_get_inhibit_permute(el);
+    if (seed >= 0) {
         seedElegantRandomNumbers(seed, inhibit);
+        seeded_once = 1;
+    } else if (!seeded_once) {
+        seedElegantRandomNumbers(1, inhibit);
         seeded_once = 1;
     }
 
