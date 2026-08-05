@@ -26,8 +26,67 @@ class TouschekResult:
     """
     Result returned by :meth:`TouschekStudy.run`.
 
-    Parameters are stored as public attributes to keep the relevant
-    intermediate information from the Touschek workflow available to users.
+    The result stores both the integrated scalar quantities and the optional
+    particle samples produced by the Touschek workflow. If tracking is not
+    requested, ``loss_rate`` is equal to ``scattering_rate`` and the lifetime
+    is computed directly from the scattering rate.
+
+    Parameters
+    ----------
+    study : TouschekStudy
+        Study object that produced the result.
+    elements : list
+        Names of the Touschek scattering elements included in the result.
+    local_momentum_acceptance : xtrack.Table
+        Local momentum acceptance table used by the study.
+    local_rates : xtrack.Table
+        Per-element diagnostics, including local Piwinski rates, integrated
+        rates, Monte Carlo rates, and optional particle counts.
+    scattering_rate : float
+        Total Touschek scattering rate represented by the result [1/s].
+    loss_rate : float or None
+        Total Touschek loss rate [1/s]. If tracking is disabled, this is equal
+        to ``scattering_rate``.
+    lifetime : float or None
+        Touschek lifetime [s], computed as bunch intensity divided by
+        ``loss_rate``.
+    particles_by_element : dict
+        Mapping ``{element_name: xtrack.Particles}`` with the generated
+        particles for each scattering element. Empty when particle generation
+        is disabled.
+    particles : xtrack.Particles or None
+        Merged generated particle sample. ``None`` when particle generation is
+        disabled.
+    lost_particles : xtrack.Particles or None
+        Subset of ``particles`` lost during tracking. ``None`` when tracking is
+        disabled.
+    tracked : bool
+        Whether the generated particles were tracked to determine losses.
+
+    Attributes
+    ----------
+    study : TouschekStudy
+        Study object that produced the result.
+    elements : list
+        Names of the Touschek scattering elements included in the result.
+    local_momentum_acceptance : xtrack.Table
+        Local momentum acceptance table used by the study.
+    local_rates : xtrack.Table
+        Per-element diagnostics.
+    scattering_rate : float
+        Total Touschek scattering rate represented by the result [1/s].
+    loss_rate : float or None
+        Total Touschek loss rate [1/s].
+    lifetime : float or None
+        Touschek lifetime [s].
+    particles_by_element : dict
+        Generated particles keyed by scattering element name.
+    particles : xtrack.Particles or None
+        Merged generated particle sample.
+    lost_particles : xtrack.Particles or None
+        Lost-particle subset when tracking is enabled.
+    tracked : bool
+        Whether tracking was enabled in :meth:`TouschekStudy.run`.
     """
     study: "TouschekStudy"
     elements: list
@@ -43,130 +102,6 @@ class TouschekResult:
 
 
 class TouschekStudy:
-    '''
-    Configured Touschek study attached to an xtrack Line.
-
-    The study:
-
-    1. Computes the Piwinski scattering rate at every
-       :class:`TouschekScattering` element in the line using the local beam
-       optics, emittances, and the local momentum acceptance (LMA).
-    2. Integrates those rates over each lattice section between consecutive
-       scattering elements (trapezoidal rule) to obtain the per-bunch,
-       per-turn loss probability in each section.
-    3. Configures each :class:`TouschekScattering` element with all local
-       parameters so that it can generate and weight Monte Carlo
-       macro-particles.
-
-    Parameters
-    ----------
-    line : xtrack.Line
-        The accelerator lattice.  Must contain at least one
-        :class:`TouschekScattering` element and a ``particle_ref``.
-    elements : list or str or None, optional
-        Touschek scattering elements to include in ``local_rates()``,
-        ``generate_particles()``, and ``run()``. If ``None`` all
-        :class:`TouschekScattering` elements in the line are included.
-    twiss : xtrack.TwissTable or None, optional
-        Pre-computed Twiss table.  If ``None``, it is computed internally
-        by :meth:`initialise_touschek` using the ``method`` keyword
-        argument (default ``"6d"``).
-    local_momentum_acceptance : xtrack.Table
-        Table returned by ``line.get_local_momentum_acceptance()``.  Must
-        contain the columns ``name``, ``s``, ``delta_neg`` (negative LMA),
-        and ``delta_pos`` (positive LMA). Values are scaled in-place by
-        ``local_momentum_acceptance_scale`` upon construction.
-    nemitt_x : float, optional
-        Horizontal normalised emittance [m·rad].  Mutually exclusive with
-        ``gemitt_x``.
-    nemitt_y : float, optional
-        Vertical normalised emittance [m·rad].  Mutually exclusive with
-        ``gemitt_y``.
-    gemitt_x : float, optional
-        Horizontal geometric emittance [m·rad].  Mutually exclusive with
-        ``nemitt_x``.
-    gemitt_y : float, optional
-        Vertical geometric emittance [m·rad].  Mutually exclusive with
-        ``nemitt_y``.
-    sigma_z : float
-        RMS bunch length [m].
-    sigma_delta : float
-        RMS relative momentum spread.
-    bunch_intensity : float
-        Number of real particles per bunch.
-    n_scattering_events : int
-        Number of Touschek scattering events to generate per scattering
-        element. Larger values improve statistics at the cost of CPU time.
-        Values of ``1e6`` to ``1e7`` are typical.
-    nx : float, optional
-        Truncation of the transverse-horizontal Gaussian sampling window in
-        units of the horizontal rms beam size. Default 3.
-    ny : float, optional
-        Truncation of the transverse-vertical Gaussian sampling window in
-        units of the vertical rms beam size. Default 3.
-    nz : float, optional
-        Truncation of the longitudinal Gaussian sampling window in units of
-        ``sigma_z`` and ``sigma_delta``. May be reduced
-        element-by-element (see Notes) to prevent drawing initial particles 
-        outside the LMA.
-        Default 3.
-    local_momentum_acceptance_scale : float, optional
-        Multiplicative safety factor applied to the LMA on construction.
-        A value of 0.85 (default) ensures that particles with momentum 
-        deviation smaller than the LMA but with nonzero betatron amplitude
-        are accepted. This avoids that particles that are eventually lost
-        are not considered for tracking
-    weight_retention_fraction : float, optional
-        Fraction of the generated scattering weight to retain in the returned
-        particle sample. The highest-weight particles are retained until their
-        cumulative weight reaches approximately this fraction of the total
-        generated weight. The default value of ``0.99`` tracks particles
-        representing approximately 99 % of the generated scattering weight.
-        Values smaller than one reduce tracking cost by discarding the
-        lowest-weight tail, at the price of a controlled downward truncation
-        of the represented rate. Set to ``1.0`` to keep all generated
-        particles.
-    seed : int, optional
-        RNG seed for the ELEGANT-compatible 48-bit LCG generator used
-        inside :class:`TouschekScattering`.  Default 1997.
-    method : str, optional
-        Twiss method forwarded to ``line.twiss()`` when ``twiss`` is
-        ``None``.  Accepted values: ``"4d"``, ``"6d"``.  Default ``"6d"``.
-
-    Attributes
-    ----------
-    line : xtrack.Line
-        The accelerator lattice passed at construction.
-    particle_ref : xtrack.Particles
-        Reference particle extracted from ``line.particle_ref``.
-    elements : list
-        Names of Touschek scattering elements included in this study.
-    twiss : xtrack.TwissTable or None
-        Twiss table (populated by :meth:`initialise_touschek` if not
-        provided at construction).
-    gemitt_x, gemitt_y : float
-        Geometric emittances [m·rad] derived from the input normalised or
-        geometric emittances.
-    local_momentum_acceptance : xtrack.Table
-        The (scaled) LMA table.
-    sigma_z, sigma_delta : float
-        Bunch length [m] and momentum spread.
-    bunch_intensity : float
-        Number of real particles per bunch.
-    n_scattering_events : int
-        Number of Touschek scattering events generated per element.
-    nx, ny, nz : float
-        Phase-space sampling truncation parameters.
-    seed : int
-        RNG seed.
-    References
-    ----------
-    .. [1] A. Xiao and M. Borland, "Monte Carlo simulation of Touschek
-       effect", Phys. Rev. ST Accel. Beams **13**, 074201 (2010).
-       https://doi.org/10.1103/PhysRevSTAB.13.074201
-    .. [2] M. Borland, "elegant: A Flexible SDDS-Compliant Code for
-       Accelerator Simulation", APS LS-287 (2000).
-    '''
     def __init__(self, line=None, elements=None, twiss=None,
                  local_momentum_acceptance=None,
                  nemitt_x=None, nemitt_y=None,
@@ -181,9 +116,81 @@ class TouschekStudy:
         Build a Touschek study and validate the supplied line, optics, beam
         parameters, and local momentum acceptance table.
 
-        Prefer using ``line.xfields.touschek_configure(...)`` in user code; it
-        constructs this object and initialises the Touschek scattering elements
-        in one step.
+        The configured study computes the local Piwinski scattering rate at
+        each :class:`TouschekScattering` element, integrates those rates over
+        the lattice sections represented by the elements, and configures the
+        elements with the local optics and beam parameters needed to generate
+        weighted Monte Carlo particles.
+
+        In user code, the :class:`TouschekStudy` instance for a line is
+        typically obtained with ``line.xfields.touschek_configure(...)``.
+
+        After construction, call :meth:`run` to obtain a
+        :class:`TouschekResult`. With tracking disabled, :meth:`run` returns
+        the integrated scattering and loss rates, the Touschek lifetime, and a
+        per-element diagnostics table. With particle generation enabled, it
+        also returns weighted scattered particles; with tracking enabled, it
+        additionally returns the tracked loss rate and the lost-particle
+        sample.
+
+        Parameters
+        ----------
+        line : xtrack.Line
+            Line containing the :class:`TouschekScattering` elements to
+            configure.
+        elements : str, sequence of str, or None, optional
+            Touschek scattering elements included in the study. If ``None``,
+            all :class:`TouschekScattering` elements in the line are used.
+        twiss : xtrack.TwissTable or None, optional
+            Twiss table used for optics-dependent rates. If ``None``, it is
+            computed when :meth:`initialise_touschek` is called.
+        local_momentum_acceptance : xtrack.Table
+            Table with ``name``, ``s``, ``delta_neg``, and ``delta_pos``
+            columns.
+        nemitt_x, nemitt_y : float, optional
+            Normalized horizontal and vertical emittances. Mutually exclusive
+            with ``gemitt_x`` and ``gemitt_y``.
+        sigma_z : float
+            RMS bunch length in meters.
+        sigma_delta : float
+            RMS relative momentum spread.
+        bunch_intensity : float
+            Number of real particles in the bunch.
+        n_scattering_events : int
+            Number of Monte Carlo scattering events generated at each
+            scattering element.
+        n_simulated : int, optional
+            Deprecated alias for ``n_scattering_events``.
+        gemitt_x, gemitt_y : float, optional
+            Geometric horizontal and vertical emittances. Mutually exclusive
+            with ``nemitt_x`` and ``nemitt_y``.
+        local_momentum_acceptance_scale : float, optional
+            Multiplicative factor applied to ``delta_neg`` and ``delta_pos``.
+        weight_retention_fraction : float, optional
+            Fraction of the generated scattering weight retained in the
+            generated particle sample.
+        ignored_portion : float, optional
+            Deprecated alias for ``1 - weight_retention_fraction``.
+        seed : int, optional
+            Seed for the random-number generator.
+        nx, ny, nz : float, optional
+            Gaussian sampling cutoffs in the horizontal, vertical, and
+            longitudinal planes.
+        **kwargs
+            Additional keyword arguments forwarded to ``line.twiss()`` when a
+            Twiss table is computed internally.
+
+        Returns
+        -------
+        None
+
+        References
+        ----------
+        .. [1] A. Xiao and M. Borland, "Monte Carlo simulation of Touschek
+           effect", Phys. Rev. ST Accel. Beams **13**, 074201 (2010).
+           https://doi.org/10.1103/PhysRevSTAB.13.074201
+        .. [2] M. Borland, "elegant: A Flexible SDDS-Compliant Code for
+           Accelerator Simulation", APS LS-287 (2000).
         """
 
         # Input validation
@@ -323,6 +330,27 @@ class TouschekStudy:
         Touschek elements. If particles are generated, their weights are used
         instead. If ``track`` is true, particles are generated and tracked from
         each scattering element back to itself.
+
+        Parameters
+        ----------
+        track : bool, optional
+            If ``True``, track generated particles and compute the loss rate
+            from particles lost during tracking. If ``False``, compute the
+            loss rate from the configured scattering rates.
+        n_turns : int or None, optional
+            Number of turns to track. Required when ``track`` is ``True``.
+        generate_particles : bool or None, optional
+            If ``True``, generate weighted scattered particles even when
+            tracking is disabled. If ``None``, particles are generated only
+            when ``track`` is ``True``.
+        with_progress : bool, optional
+            Forwarded to :meth:`xtrack.Line.track` when tracking is enabled.
+
+        Returns
+        -------
+        result : TouschekResult
+            Study result containing local rates, total scattering and loss
+            rates, lifetime, and any generated or lost particles.
         """
         if track:
             if generate_particles is False:
@@ -642,6 +670,10 @@ class TouschekStudy:
             element is (re-)initialised; the Piwinski rate is integrated only
             over the lattice section between that element and the preceding
             scattering centre.
+
+        Returns
+        -------
+        None
         '''
         line = self.line
         tab = line.get_table()
@@ -786,6 +818,20 @@ class TouschekStudy:
     def local_rates(self, *, particles_by_element=None):
         """
         Return an ``xt.Table`` with per-scattering-element diagnostics.
+
+        Parameters
+        ----------
+        particles_by_element : dict or None, optional
+            Mapping from element name to the particles generated at that
+            element. If provided, Monte Carlo particle counts and weight sums
+            are included in the table.
+
+        Returns
+        -------
+        table : xtrack.Table
+            Table with local momentum acceptance, Piwinski rates, integrated
+            rates, Monte Carlo rates, and optional particle diagnostics for
+            each Touschek scattering element in the study.
         """
         data = {
             "name": [],
@@ -847,6 +893,10 @@ class TouschekStudy:
     def generate_particles(self):
         """
         Generate Touschek-scattered particles at the configured elements.
+
+        Parameters
+        ----------
+        None
 
         Returns
         -------
