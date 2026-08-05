@@ -13,7 +13,7 @@ from scipy.special import i0
 from scipy.constants import physical_constants
 
 from ..beam_elements.touschek import (
-    TouschekScattering, _resolve_weight_retention_fraction,
+    TouschekRNGState, TouschekScattering, _resolve_weight_retention_fraction,
     _resolve_n_scattering_events, _resolve_bunch_intensity)
 
 ELECTRON_MASS_EV = xt.ELECTRON_MASS_EV
@@ -176,10 +176,10 @@ class TouschekStudy:
         ignored_portion : float, optional
             Deprecated alias for ``1 - weight_retention_fraction``.
         seed : int or None, optional
-            Seed for the random-number generator. If provided, the Touschek
-            Monte Carlo sequence is re-seeded at the first selected scattering
-            element. If ``None`` (default), the existing RNG stream is
-            continued.
+            Seed for the random-number generator. If provided, a reproducible
+            Touschek Monte Carlo sequence is used. If ``None`` (default), a
+            seed is drawn with :mod:`numpy.random` when particles are
+            generated.
         nx, ny, nz : float, optional
             Gaussian sampling cutoffs in the horizontal, vertical, and
             longitudinal planes.
@@ -326,6 +326,21 @@ class TouschekStudy:
             self.gemitt_y = gemitt_y
 
         self.kwargs = kwargs
+        self._rng_state = None
+
+    def _new_rng_state(self):
+        context = self.line[self.elements[0]]._context
+        self._rng_state = TouschekRNGState(seed=self.seed, _context=context)
+        return self._rng_state
+
+    def _rng_state_for_element(self, element_name):
+        context = self.line[element_name]._context
+        if self._rng_state is None:
+            self._rng_state = TouschekRNGState(
+                seed=self.seed, _context=context)
+        elif self._rng_state._context is not context:
+            self._rng_state = self._rng_state.copy(_context=context)
+        return self._rng_state
 
     def run(self, *, track=False, n_turns=None, generate_particles=None,
             keep_particles=False, with_progress=False):
@@ -341,8 +356,8 @@ class TouschekStudy:
         ----------
         track : bool, optional
             If ``True``, track generated particles and compute the loss rate
-            from particles lost during tracking. If ``False``, compute the
-            loss rate from the configured scattering rates.
+            from particles lost during tracking. If ``False``, only the
+            configured scattering rate is reported.
         n_turns : int or None, optional
             Number of turns to track. Required when ``track`` is ``True``.
         generate_particles : bool or None, optional
@@ -392,8 +407,10 @@ class TouschekStudy:
         ))
 
         if generate_particles:
+            self._new_rng_state()
             for nn in self.elements:
-                particles = self.line[nn].scatter()
+                rng_state = self._rng_state_for_element(nn)
+                particles = self.line[nn].scatter(_rng_state=rng_state)
                 if track:
                     self.line.track(
                         particles,
@@ -718,13 +735,6 @@ class TouschekStudy:
         self._compute_integrated_piwinski_rates(element)
         print(f"Computed integrated piwinski rates in {time.time() - t0:.2f} s.")
 
-        if self.seed is None:
-            seeded_element = None
-        elif element is not None:
-            seeded_element = element
-        else:
-            seeded_element = self.elements[0]
-
         # Helper to config all fields to a single TouschekScattering
         def _config(nn):
             try:
@@ -829,8 +839,6 @@ class TouschekStudy:
                 theta_min=self._theta_min, theta_max=self._theta_max,
                 weight_retention_fraction=self.weight_retention_fraction,
                 piwinski_rate=piwinski_rate,
-                seed=self.seed if nn == seeded_element else None,
-                inhibit_permute=0
             )
 
         if element is None:
@@ -960,4 +968,9 @@ class TouschekStudy:
         particles_by_element : dict
             Mapping ``{element_name: xt.Particles}``.
         """
-        return {nn: self.line[nn].scatter() for nn in self.elements}
+        self._new_rng_state()
+        return {
+            nn: self.line[nn].scatter(
+                _rng_state=self._rng_state_for_element(nn))
+            for nn in self.elements
+        }

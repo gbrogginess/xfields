@@ -16,9 +16,11 @@
  *
  *  RNG compatibility
  *  -----------------
- *  RNG streams are chosen to reproduce Elegant’s sequences.
+ *  RNG streams are chosen to reproduce Elegant’s sequences and are stored in
+ *  an explicit TouschekRNGState xobject.
  *  See: xfields/xfields/headers/elegant_rng.h
- *  (uses random_1_elegant, random_4, randomizeOrder, and DLARAN).
+ *  (uses TouschekRNGState_seed, touschek_random_1_elegant,
+ *  touschek_random_4, touschek_randomize_order, and DLARAN).
  *
  *  Summary of modifications vs Elegant
  *  -----------------------------------
@@ -282,7 +284,8 @@ void TouschekScatter(TouschekScatteringData el,
                      double* theta_out,
                      double* weight_out,
                      double* totalMCRate_out,
-                     int64_t* n_selected_out){
+                     int64_t* n_selected_out,
+                     TouschekRNGStateData rng_state){
 
     const double p0c   = TouschekScatteringData_get_p0c(el);
     const double bunch_intensity = TouschekScatteringData_get_bunch_intensity(el);
@@ -347,17 +350,6 @@ void TouschekScatter(TouschekScatteringData el,
     double *deltatemp  = (double*)malloc(sizeof(double) * n_simulated);
     double *thetatemp  = (double*)malloc(sizeof(double) * n_simulated);
 
-    static int seeded_once = 0;
-    long seed = TouschekScatteringData_get_seed(el);
-    short inhibit = (short)TouschekScatteringData_get_inhibit_permute(el);
-    if (seed >= 0) {
-        seedElegantRandomNumbers(seed, inhibit);
-        seeded_once = 1;
-    } else if (!seeded_once) {
-        seedElegantRandomNumbers(1, inhibit);
-        seeded_once = 1;
-    }
-
     i = 0;
     j = 0;
     total_event = 0;
@@ -382,9 +374,9 @@ void TouschekScatter(TouschekScatteringData el,
         // NOTE: ELEGANT uses slopes xp=dx/ds, yp=dy/ds instead of the normalized momentum components px=Px/p0c, py=Py/p0c
         for (j = 0; j < 11; j++) {
           // ran1[j] = RandomUniformAccurate_generate(part0); // Does not match with ELEGANT
-          ran1[j] = random_1_elegant(1);
+          ran1[j] = touschek_random_1_elegant(rng_state);
         }
-        randomizeOrder((char*)ran1, sizeof(ran1[0]), 11, 0, random_4); // like ELEGANT
+        touschek_randomize_order((char*)ran1, sizeof(ran1[0]), 11, rng_state); // like ELEGANT
 
         total_event++;
 

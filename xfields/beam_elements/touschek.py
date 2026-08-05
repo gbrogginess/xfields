@@ -9,11 +9,67 @@ import numpy as np
 import warnings
 
 
-_NO_SEED = -1
+def _make_random_seed():
+    return int(np.random.randint(1, 2**31 - 1))
 
 
-def _resolve_seed(seed):
-    return _NO_SEED if seed is None else int(seed)
+class TouschekRNGState(xo.HybridClass):
+    """
+    Explicit Elegant-compatible RNG state used by Touschek scattering.
+    """
+
+    _xofields = {
+        'seed_1_0': xo.Int32,
+        'seed_1_1': xo.Int32,
+        'seed_1_2': xo.Int32,
+        'seed_1_3': xo.Int32,
+        'seed_4_0': xo.Int32,
+        'seed_4_1': xo.Int32,
+        'seed_4_2': xo.Int32,
+        'seed_4_3': xo.Int32,
+        'inhibit_permute': xo.Int64,
+    }
+
+    _extra_c_sources = [
+        '#include "xfields/headers/elegant_rng.h"',
+    ]
+
+    _kernels = {
+        'TouschekRNGState_seed': xo.Kernel(
+            c_name='TouschekRNGState_seed',
+            args=[
+                xo.Arg(xo.ThisClass, name='rng_state'),
+                xo.Arg(xo.Int64, name='seed'),
+                xo.Arg(xo.Int64, name='inhibit_permute'),
+            ],
+        ),
+    }
+
+    def __init__(self, seed=None, inhibit_permute=0, **kwargs):
+        if '_xobject' in kwargs:
+            self.xoinitialize(**kwargs)
+            return
+
+        if seed is None:
+            seed = _make_random_seed()
+
+        self.xoinitialize(
+            seed_1_0=0, seed_1_1=0, seed_1_2=0, seed_1_3=0,
+            seed_4_0=0, seed_4_1=0, seed_4_2=0, seed_4_3=0,
+            inhibit_permute=int(inhibit_permute),
+            **kwargs,
+        )
+        self.seed(seed, inhibit_permute=inhibit_permute)
+
+    def seed(self, seed, inhibit_permute=0):
+        self._xobject.compile_kernels(only_if_needed=True)
+        kernel = self._context.kernels.TouschekRNGState_seed
+        kernel.set_n_threads(1)
+        kernel(
+            rng_state=self,
+            seed=int(seed),
+            inhibit_permute=int(inhibit_permute),
+        )
 
 
 def _resolve_weight_retention_fraction(
@@ -165,14 +221,6 @@ class TouschekScattering(xt.BeamElement):
         section contribution to the ring-averaged per-bunch rate [1/s].
         Set by :meth:`TouschekStudy.initialise_touschek`; used to weight
         the scattered macro-particles.
-    seed : int or None, optional
-        Seed for the ELEGANT-compatible 48-bit LCG random number generator.
-        If not ``None``, the seed is applied when :meth:`scatter` is called.
-        If ``None``, the existing RNG stream is continued. Default ``None``.
-    inhibit_permute : int, optional
-        If non-zero, the random-order permutation step (``randomizeOrder``)
-        is skipped.  Intended for reproducibility testing only.
-
     Attributes
     ----------
     piwinski_rate : float
@@ -254,12 +302,10 @@ class TouschekScattering(xt.BeamElement):
         'theta_max': xo.Float64,
         'ignored_portion': xo.Float64,
         'integrated_piwinski_rate': xo.Float64,
-        'seed': xo.Int64,
-        'inhibit_permute': xo.Int64
     }
 
     # allow_track = False
-    _depends_on = [xt.RandomUniformAccurate]
+    _depends_on = [xt.RandomUniformAccurate, TouschekRNGState]
 
     _extra_c_sources = [
         '#include "xfields/beam_elements/touschek_src/touschek.h"'
@@ -279,6 +325,7 @@ class TouschekScattering(xt.BeamElement):
                 xo.Arg(xo.Float64, name='weight_out', pointer=True),
                 xo.Arg(xo.Float64, name='totalMCRate_out', pointer=True),
                 xo.Arg(xo.Int64,   name='n_selected_out', pointer=True),
+                xo.Arg(TouschekRNGState._XoStruct, name='rng_state'),
             ],
         ),
     }
@@ -301,8 +348,6 @@ class TouschekScattering(xt.BeamElement):
                 weight_retention_fraction=None,
                 ignored_portion=None,
                 integrated_piwinski_rate=0.0,
-                seed=None,
-                inhibit_permute=0,
                 **kwargs):
         """
         Create a Touschek scattering element.
@@ -354,12 +399,6 @@ class TouschekScattering(xt.BeamElement):
         integrated_piwinski_rate : float, optional
             Piwinski rate integrated over the lattice section represented by
             this element.
-        seed : int or None, optional
-            Seed for the random-number generator. If ``None``, the existing
-            RNG stream is continued.
-        inhibit_permute : int, optional
-            If nonzero, skip the random-order permutation step in the Monte
-            Carlo selection.
         **kwargs
             Keyword arguments forwarded to :class:`xtrack.BeamElement`.
 
@@ -419,8 +458,6 @@ class TouschekScattering(xt.BeamElement):
             default=1.0)
         self.integrated_piwinski_rate = integrated_piwinski_rate
         self.piwinski_rate = piwinski_rate
-        self.seed = _resolve_seed(seed)
-        self.inhibit_permute = inhibit_permute
 
     @property
     def weight_retention_fraction(self):
@@ -512,16 +549,12 @@ class TouschekScattering(xt.BeamElement):
             "theta_min", "theta_max",
             "weight_retention_fraction", "ignored_portion", "piwinski_rate",
             "integrated_piwinski_rate",
-            "seed", "inhibit_permute"
         }
 
         unknown = set(kwargs) - config_allowed
         if unknown:
             bad = ", ".join(sorted(unknown))
             raise KeyError(f"Unsupported configure() keys: {bad}")
-
-        if "seed" in kwargs:
-            kwargs["seed"] = _resolve_seed(kwargs["seed"])
         
         ignored_portion = kwargs.pop("ignored_portion", None)
         weight_retention_fraction = kwargs.pop(
@@ -552,13 +585,15 @@ class TouschekScattering(xt.BeamElement):
             if kk == "particle_ref":
                 self.p0c = self.particle_ref.p0c[0]
 
-    def scatter(self):
+    def scatter(self, _rng_state=None):
         """
         Generate weighted Touschek-scattered macro-particles.
 
         Parameters
         ----------
-        None
+        _rng_state : TouschekRNGState or None, optional
+            Explicit RNG state. If ``None``, a temporary state is created from
+            a seed drawn with :mod:`numpy.random`.
 
         Returns
         -------
@@ -568,6 +603,11 @@ class TouschekScattering(xt.BeamElement):
             section scattering rate.
         """
         context = self._context
+        if _rng_state is None:
+            _rng_state = TouschekRNGState(_context=context)
+        elif _rng_state._context is not context:
+            _rng_state = _rng_state.copy(_context=context)
+
         particles = xt.Particles(_context=context)
 
         if not particles._has_valid_rng_state():
@@ -591,7 +631,8 @@ class TouschekScattering(xt.BeamElement):
                       theta_out=theta_out,
                       weight_out=weight_out,
                       totalMCRate_out=totalMCRate_out,
-                      n_selected_out=n_selected_out)
+                      n_selected_out=n_selected_out,
+                      rng_state=_rng_state)
         
         n = n_selected_out[0]
         # Create particle object for tracking
