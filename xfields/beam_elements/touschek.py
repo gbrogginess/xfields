@@ -13,6 +13,41 @@ def _make_random_seed():
     return int(np.random.randint(1, 2**31 - 1))
 
 
+_TOUSCHEK_RNG_ELEGANT = 0
+_TOUSCHEK_RNG_XTRACK = 1
+_TOUSCHEK_RNG_NAMES = {
+    _TOUSCHEK_RNG_ELEGANT: 'elegant',
+    _TOUSCHEK_RNG_XTRACK: 'xtrack',
+}
+
+
+def _resolve_rng_source(rng):
+    if isinstance(rng, str):
+        rng = rng.lower()
+        if rng == 'elegant':
+            return _TOUSCHEK_RNG_ELEGANT
+        if rng == 'xtrack':
+            return _TOUSCHEK_RNG_XTRACK
+
+    if rng in _TOUSCHEK_RNG_NAMES:
+        return int(rng)
+
+    raise ValueError("`rng` must be either 'elegant' or 'xtrack'.")
+
+
+def _rng_source_name(rng_source):
+    return _TOUSCHEK_RNG_NAMES[_resolve_rng_source(rng_source)]
+
+
+def _make_xtrack_rng_seed(seed):
+    if seed is None:
+        seed = _make_random_seed()
+    seed = int(seed) % (2**32 - 1)
+    if seed == 0:
+        seed = 1
+    return np.array([seed], dtype=np.uint32)
+
+
 class TouschekRNGState(xo.HybridClass):
     """
     Explicit Elegant-compatible RNG state used by Touschek scattering.
@@ -60,6 +95,17 @@ class TouschekRNGState(xo.HybridClass):
             **kwargs,
         )
         self.seed(seed, inhibit_permute=inhibit_permute)
+
+    @classmethod
+    def _unseeded(cls, **kwargs):
+        rng_state = cls.__new__(cls)
+        rng_state.xoinitialize(
+            seed_1_0=0, seed_1_1=0, seed_1_2=0, seed_1_3=0,
+            seed_4_0=0, seed_4_1=0, seed_4_2=0, seed_4_3=0,
+            inhibit_permute=0,
+            **kwargs,
+        )
+        return rng_state
 
     def seed(self, seed, inhibit_permute=0):
         self._xobject.compile_kernels(only_if_needed=True)
@@ -302,6 +348,7 @@ class TouschekScattering(xt.BeamElement):
         'theta_max': xo.Float64,
         'ignored_portion': xo.Float64,
         'integrated_piwinski_rate': xo.Float64,
+        'rng_source': xo.Int64,
     }
 
     # allow_track = False
@@ -348,6 +395,7 @@ class TouschekScattering(xt.BeamElement):
                 weight_retention_fraction=None,
                 ignored_portion=None,
                 integrated_piwinski_rate=0.0,
+                rng='elegant',
                 **kwargs):
         """
         Create a Touschek scattering element.
@@ -399,6 +447,10 @@ class TouschekScattering(xt.BeamElement):
         integrated_piwinski_rate : float, optional
             Piwinski rate integrated over the lattice section represented by
             this element.
+        rng : {'elegant', 'xtrack'}, optional
+            Random-number generator used by :meth:`scatter`. ``'elegant'``
+            reproduces the Elegant/SDDS generator sequence; ``'xtrack'`` uses
+            the xtrack accurate uniform generator.
         **kwargs
             Keyword arguments forwarded to :class:`xtrack.BeamElement`.
 
@@ -457,7 +509,40 @@ class TouschekScattering(xt.BeamElement):
             ignored_portion=ignored_portion,
             default=1.0)
         self.integrated_piwinski_rate = integrated_piwinski_rate
+        self.rng = rng
         self.piwinski_rate = piwinski_rate
+
+    @property
+    def rng(self):
+        """
+        Random-number generator used by :meth:`scatter`.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        rng : {'elegant', 'xtrack'}
+            Name of the configured random-number generator.
+        """
+        return _rng_source_name(self.rng_source)
+
+    @rng.setter
+    def rng(self, value):
+        """
+        Set the random-number generator used by :meth:`scatter`.
+
+        Parameters
+        ----------
+        value : {'elegant', 'xtrack'}
+            Random-number generator name.
+
+        Returns
+        -------
+        None
+        """
+        self.rng_source = _resolve_rng_source(value)
 
     @property
     def weight_retention_fraction(self):
@@ -548,7 +633,7 @@ class TouschekScattering(xt.BeamElement):
             "n_scattering_events", "n_simulated", "nx", "ny", "nz",
             "theta_min", "theta_max",
             "weight_retention_fraction", "ignored_portion", "piwinski_rate",
-            "integrated_piwinski_rate",
+            "integrated_piwinski_rate", "rng",
         }
 
         unknown = set(kwargs) - config_allowed
@@ -580,20 +665,29 @@ class TouschekScattering(xt.BeamElement):
                 bunch_intensity=bunch_intensity,
                 default=self.bunch_intensity)
 
+        rng = kwargs.pop("rng", None)
+        if rng is not None:
+            self.rng = rng
+
         for kk, vv in kwargs.items():
             setattr(self, kk, vv)
             if kk == "particle_ref":
                 self.p0c = self.particle_ref.p0c[0]
 
-    def scatter(self, _rng_state=None):
+    def scatter(self, _rng_state=None, _rng_particle=None):
         """
         Generate weighted Touschek-scattered macro-particles.
 
         Parameters
         ----------
         _rng_state : TouschekRNGState or None, optional
-            Explicit RNG state. If ``None``, a temporary state is created from
-            a seed drawn with :mod:`numpy.random`.
+            Explicit Elegant-compatible RNG state. Used only when
+            ``rng='elegant'``. If ``None``, a temporary state is created from a
+            seed drawn with :mod:`numpy.random`.
+        _rng_particle : xtrack.Particles or None, optional
+            Carrier particle holding the xtrack RNG state. Used only when
+            ``rng='xtrack'``. If ``None``, a temporary carrier is created and
+            seeded from :mod:`numpy.random`.
 
         Returns
         -------
@@ -603,15 +697,31 @@ class TouschekScattering(xt.BeamElement):
             section scattering rate.
         """
         context = self._context
-        if _rng_state is None:
-            _rng_state = TouschekRNGState(_context=context)
-        elif _rng_state._context is not context:
-            _rng_state = _rng_state.copy(_context=context)
-
-        particles = xt.Particles(_context=context)
-
-        if not particles._has_valid_rng_state():
-            particles._init_random_number_generator()
+        if self.rng_source == _TOUSCHEK_RNG_ELEGANT:
+            if _rng_state is None:
+                _rng_state = TouschekRNGState(_context=context)
+            elif _rng_state._context is not context:
+                _rng_state = _rng_state.copy(_context=context)
+            particles = xt.Particles(_context=context)
+        elif self.rng_source == _TOUSCHEK_RNG_XTRACK:
+            if _rng_state is None:
+                _rng_state = TouschekRNGState._unseeded(_context=context)
+            elif _rng_state._context is not context:
+                _rng_state = _rng_state.copy(_context=context)
+            if _rng_particle is None:
+                particles = xt.Particles(_context=context)
+                particles._init_random_number_generator(
+                    seeds=_make_xtrack_rng_seed(None))
+            else:
+                particles = _rng_particle
+                if particles._context is not context:
+                    particles = particles.copy(_context=context)
+                if not particles._has_valid_rng_state():
+                    particles._init_random_number_generator(
+                        seeds=_make_xtrack_rng_seed(None))
+        else:
+            raise ValueError(
+                f"Unsupported Touschek RNG source: {self.rng_source}")
 
         x_out      = context.zeros(shape=(self.n_simulated,), dtype=np.float64)
         px_out     = context.zeros(shape=(self.n_simulated,), dtype=np.float64)

@@ -151,6 +151,7 @@ touschek = line.xfields.touschek_configure(
     nx=3, ny=3, nz=3,
     weight_retention_fraction=0.99,
     seed=1997,
+    rng='elegant',
     method='4d',
 )
 

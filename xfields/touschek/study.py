@@ -14,7 +14,9 @@ from scipy.constants import physical_constants
 
 from ..beam_elements.touschek import (
     TouschekRNGState, TouschekScattering, _resolve_weight_retention_fraction,
-    _resolve_n_scattering_events, _resolve_bunch_intensity)
+    _resolve_n_scattering_events, _resolve_bunch_intensity,
+    _resolve_rng_source, _rng_source_name, _make_xtrack_rng_seed,
+    _TOUSCHEK_RNG_ELEGANT, _TOUSCHEK_RNG_XTRACK)
 
 ELECTRON_MASS_EV = xt.ELECTRON_MASS_EV
 C_LIGHT_VACUUM = physical_constants['speed of light in vacuum'][0]
@@ -115,7 +117,7 @@ class TouschekStudy:
                  gemitt_x=None, gemitt_y=None,
                  local_momentum_acceptance_scale=0.85,
                  weight_retention_fraction=None, ignored_portion=None,
-                 seed=None, nx=3, ny=3, nz=3, **kwargs):
+                 seed=None, rng='elegant', nx=3, ny=3, nz=3, **kwargs):
         """
         Build a Touschek study and validate the supplied line, optics, beam
         parameters, and local momentum acceptance table.
@@ -180,6 +182,10 @@ class TouschekStudy:
             Touschek Monte Carlo sequence is used. If ``None`` (default), a
             seed is drawn with :mod:`numpy.random` when particles are
             generated.
+        rng : {'elegant', 'xtrack'}, optional
+            Random-number generator used for Monte Carlo particle generation.
+            ``'elegant'`` reproduces the Elegant/SDDS generator sequence;
+            ``'xtrack'`` uses the xtrack accurate uniform generator.
         nx, ny, nz : float, optional
             Gaussian sampling cutoffs in the horizontal, vertical, and
             longitudinal planes.
@@ -297,6 +303,8 @@ class TouschekStudy:
             ignored_portion=ignored_portion,
             default=0.99)
         self.seed = seed
+        self.rng_source = _resolve_rng_source(rng)
+        self.rng = _rng_source_name(self.rng_source)
         self.nx = nx
         self.ny = ny
         self.nz = nz
@@ -327,13 +335,26 @@ class TouschekStudy:
 
         self.kwargs = kwargs
         self._rng_state = None
+        self._rng_particle = None
 
-    def _new_rng_state(self):
+    def _new_rng(self):
         context = self.line[self.elements[0]]._context
-        self._rng_state = TouschekRNGState(seed=self.seed, _context=context)
-        return self._rng_state
+        if self.rng_source == _TOUSCHEK_RNG_ELEGANT:
+            self._rng_state = TouschekRNGState(
+                seed=self.seed, _context=context)
+            self._rng_particle = None
+        elif self.rng_source == _TOUSCHEK_RNG_XTRACK:
+            self._rng_state = None
+            self._rng_particle = xt.Particles(_context=context)
+            self._rng_particle._init_random_number_generator(
+                seeds=_make_xtrack_rng_seed(self.seed))
+        else:
+            raise ValueError(
+                f"Unsupported Touschek RNG source: {self.rng_source}")
 
     def _rng_state_for_element(self, element_name):
+        if self.rng_source != _TOUSCHEK_RNG_ELEGANT:
+            return None
         context = self.line[element_name]._context
         if self._rng_state is None:
             self._rng_state = TouschekRNGState(
@@ -341,6 +362,18 @@ class TouschekStudy:
         elif self._rng_state._context is not context:
             self._rng_state = self._rng_state.copy(_context=context)
         return self._rng_state
+
+    def _rng_particle_for_element(self, element_name):
+        if self.rng_source != _TOUSCHEK_RNG_XTRACK:
+            return None
+        context = self.line[element_name]._context
+        if self._rng_particle is None:
+            self._rng_particle = xt.Particles(_context=context)
+            self._rng_particle._init_random_number_generator(
+                seeds=_make_xtrack_rng_seed(self.seed))
+        elif self._rng_particle._context is not context:
+            self._rng_particle = self._rng_particle.copy(_context=context)
+        return self._rng_particle
 
     def run(self, *, track=False, n_turns=None, generate_particles=None,
             keep_particles=False, with_progress=False):
@@ -407,10 +440,14 @@ class TouschekStudy:
         ))
 
         if generate_particles:
-            self._new_rng_state()
+            self._new_rng()
             for nn in self.elements:
                 rng_state = self._rng_state_for_element(nn)
-                particles = self.line[nn].scatter(_rng_state=rng_state)
+                rng_particle = self._rng_particle_for_element(nn)
+                particles = self.line[nn].scatter(
+                    _rng_state=rng_state,
+                    _rng_particle=rng_particle,
+                )
                 if track:
                     self.line.track(
                         particles,
@@ -839,6 +876,7 @@ class TouschekStudy:
                 theta_min=self._theta_min, theta_max=self._theta_max,
                 weight_retention_fraction=self.weight_retention_fraction,
                 piwinski_rate=piwinski_rate,
+                rng=self.rng,
             )
 
         if element is None:
@@ -968,9 +1006,10 @@ class TouschekStudy:
         particles_by_element : dict
             Mapping ``{element_name: xt.Particles}``.
         """
-        self._new_rng_state()
+        self._new_rng()
         return {
             nn: self.line[nn].scatter(
-                _rng_state=self._rng_state_for_element(nn))
+                _rng_state=self._rng_state_for_element(nn),
+                _rng_particle=self._rng_particle_for_element(nn))
             for nn in self.elements
         }

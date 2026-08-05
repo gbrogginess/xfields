@@ -273,6 +273,18 @@ class TestTouschekStudyInit:
             )
         assert study.n_scattering_events == 10
 
+    def test_raises_on_invalid_rng(self, toy_ring):
+        line = toy_ring['line']
+        with pytest.raises(ValueError, match='rng'):
+            xf.TouschekStudy(
+                line,
+                local_momentum_acceptance=_fresh_lma(toy_ring),
+                sigma_z=SIGMA_Z, sigma_delta=SIGMA_DELTA,
+                bunch_intensity=BUNCH_INTENSITY, n_scattering_events=10,
+                nemitt_x=NEMITT_X, nemitt_y=NEMITT_Y,
+                rng='invalid',
+            )
+
     def test_raises_on_both_nemitt_and_gemitt(self, toy_ring):
         line = toy_ring['line']
         lma  = _fresh_lma(toy_ring)
@@ -445,6 +457,22 @@ class TestTouschekStudyInitialise:
         assert "integrated_piwinski_rate" in cols
         assert "total_mc_rate" not in cols
         assert "num_lost_particles" not in cols
+
+    def test_xtrack_rng_generates_particles(self, toy_ring):
+        line = toy_ring['line']
+        tw = toy_ring['twiss']
+        lma = _fresh_lma(toy_ring)
+        study = _build_study(
+            line, lma, tw, n_scattering_events=int(1e5), rng='xtrack')
+        study.initialise_touschek()
+
+        result = study.run(track=False, keep_particles=True)
+
+        assert study.rng == 'xtrack'
+        assert result.particles is not None
+        assert len(result.particles.x) > 0
+        for nn in study.elements:
+            assert line[nn].rng == 'xtrack'
 
 
 class TestTouschekScattering:

@@ -40,6 +40,7 @@
 #define XTRACK_TOUSCHEK_H
 
 #include "xtrack/headers/track.h"
+#include "xtrack/random/random_src/uniform_accurate.h"
 #include "xfields/headers/elegant_rng.h"
 
 #include <math.h>
@@ -272,6 +273,36 @@ void pickPart(double *weight, long *index, long start, long end,
   return;
 }
 
+static long touschek_xtrack_randomize_order(
+        char *ptr, long size, long length, LocalParticle* part0) {
+    if (!ptr || size <= 0) return 0;
+    if (length < 2) return 1;
+
+    RANDOMIZATION_HOLDER *rh =
+        (RANDOMIZATION_HOLDER*)malloc(sizeof(*rh) * (size_t)length);
+    if (!rh) return 0;
+
+    for (long i = 0; i < length; i++) {
+        rh[i].buffer = malloc((size_t)size);
+        if (!rh[i].buffer) {
+            for (long k = 0; k < i; k++) free(rh[k].buffer);
+            free(rh);
+            return 0;
+        }
+        memcpy(rh[i].buffer, ptr + i * size, (size_t)size);
+        rh[i].random_value = RandomUniformAccurate_generate(part0);
+    }
+
+    qsort((void*)rh, (size_t)length, sizeof(*rh), randomizeOrderCmp);
+
+    for (long i = 0; i < length; i++) {
+        memcpy(ptr + i * size, rh[i].buffer, (size_t)size);
+        free(rh[i].buffer);
+    }
+    free(rh);
+    return 1;
+}
+
 /* Adapted from Elegant touschekScatter.c: TouschekDistribution (logic unchanged) */
 void TouschekScatter(TouschekScatteringData el,
                      LocalParticle* part0,
@@ -311,6 +342,7 @@ void TouschekScatter(TouschekScatteringData el,
     const double theta_max = TouschekScatteringData_get_theta_max(el);
     const double ignoredPortion = TouschekScatteringData_get_ignored_portion(el);
     const double integrated_piwinski_rate = TouschekScatteringData_get_integrated_piwinski_rate(el);
+    const int64_t rng_source = TouschekScatteringData_get_rng_source(el);
 
     long i, j, total_event, simuCount, iTotal;
     double ran1[11];
@@ -373,10 +405,17 @@ void TouschekScatter(TouschekScatteringData el,
 
         // NOTE: ELEGANT uses slopes xp=dx/ds, yp=dy/ds instead of the normalized momentum components px=Px/p0c, py=Py/p0c
         for (j = 0; j < 11; j++) {
-          // ran1[j] = RandomUniformAccurate_generate(part0); // Does not match with ELEGANT
-          ran1[j] = touschek_random_1_elegant(rng_state);
+          if (rng_source == 1) {
+            ran1[j] = RandomUniformAccurate_generate(part0);
+          } else {
+            ran1[j] = touschek_random_1_elegant(rng_state);
+          }
         }
-        touschek_randomize_order((char*)ran1, sizeof(ran1[0]), 11, rng_state); // like ELEGANT
+        if (rng_source == 1) {
+          touschek_xtrack_randomize_order((char*)ran1, sizeof(ran1[0]), 11, part0);
+        } else {
+          touschek_randomize_order((char*)ran1, sizeof(ran1[0]), 11, rng_state); // like ELEGANT
+        }
 
         total_event++;
 
