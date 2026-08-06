@@ -23,4 +23,5 @@ NON_TRACKING_ELEMENTS = [
     xf.TriCubicInterpolatedFieldMap,
     xf.UniformBinSlicer,
     xf.slicers.CompressedProfile,
+    xf.TouschekRNGState,
 ]
