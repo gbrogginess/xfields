@@ -21,41 +21,10 @@ sigma_delta = 1e-3
 bunch_intensity = 4e9
 
 ######################################################
-# Build a toy ring
+# Load a toy ring
 ######################################################
-lbend = 3
-angle = np.pi / 2
-
-lquad = 0.3
-k1qf = 0.1
-k1qd = 0.7
-
-env = xt.Environment()
-
-line = env.new_line(components=[
-    env.new('mqf.1', xt.Quadrupole, length=lquad, k1=k1qf),
-    env.new('d1.1',  xt.Drift, length=1),
-    env.new('mb1.1', xt.Bend, length=lbend, angle=angle),
-    env.new('d2.1',  xt.Drift, length=1),
-
-    env.new('mqd.1', xt.Quadrupole, length=lquad, k1=-k1qd),
-    env.new('d3.1',  xt.Drift, length=1),
-    env.new('mb2.1', xt.Bend, length=lbend, angle=angle),
-    env.new('d4.1',  xt.Drift, length=1),
-
-    env.new('mqf.2', xt.Quadrupole, length=lquad, k1=k1qf),
-    env.new('d1.2',  xt.Drift, length=1),
-    env.new('mb1.2', xt.Bend, length=lbend, angle=angle),
-    env.new('d2.2',  xt.Drift, length=1),
-
-    env.new('mqd.2', xt.Quadrupole, length=lquad, k1=-k1qd),
-    env.new('d3.2',  xt.Drift, length=1),
-    env.new('mb2.2', xt.Bend, length=lbend, angle=angle),
-    env.new('d4.2',  xt.Drift, length=1),
-])
-
-line.set_particle_ref('electron', p0c=1e9)
-line.configure_bend_model(core='full', edge=None)
+line = xt.load('../../test_data/four_cell_ring/line.json')
+env = line.env
 
 ######################################################
 # Insert Touschek scattering centers
@@ -85,20 +54,15 @@ needs_aperture = tab.rows.match_not(element_type='Drift.*|Marker|').name
 
 aper_size = 0.040
 
+env.new('aper', xt.LimitRect,
+        min_x=-aper_size, max_x=aper_size,
+        min_y=-aper_size, max_y=aper_size)
+
 placements = []
 for nn in needs_aperture:
-    env.new(
-        f'{nn}_aper_entry', xt.LimitRect,
-        min_x=-aper_size, max_x=aper_size,
-        min_y=-aper_size, max_y=aper_size,
-    )
+    env.new(f'{nn}_aper_entry', 'aper')
+    env.new(f'{nn}_aper_exit', 'aper')
     placements.append(env.place(f'{nn}_aper_entry', at=f'{nn}@start'))
-
-    env.new(
-        f'{nn}_aper_exit', xt.LimitRect,
-        min_x=-aper_size, max_x=aper_size,
-        min_y=-aper_size, max_y=aper_size,
-    )
     placements.append(env.place(f'{nn}_aper_exit', at=f'{nn}@end'))
 
 line.insert(placements)
