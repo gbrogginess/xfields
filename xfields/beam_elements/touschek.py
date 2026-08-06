@@ -378,7 +378,7 @@ class TouschekScattering(xt.BeamElement):
     }
 
     def __init__(self, s=0.0,
-                particle_ref=xt.Particles(),
+                particle_ref=None,
                 element_index=0,
                 bunch_intensity=None,
                 alfx=0.0, betx=0.0, alfy=0.0, bety=0.0,
@@ -468,6 +468,9 @@ class TouschekScattering(xt.BeamElement):
             return
         
         super().__init__(**kwargs)
+
+        if particle_ref is None:
+            particle_ref = xt.Particles(_context=self._buffer.context)
 
         self.s = s
         self.particle_ref = particle_ref
