@@ -7,7 +7,7 @@ import pytest
 
 import xobjects as xo
 from xobjects.test_helpers import (
-    allow_no_prebuilt_kernels, for_all_test_contexts)
+    allow_kernel_compilation, for_all_test_contexts)
 import xtrack as xt
 import xfields as xf
 
@@ -586,7 +586,7 @@ class TestEndToEndLifetime:
     """
 
     @for_all_test_contexts(excluding=('ContextCupy', 'ContextPyopencl'))
-    @allow_no_prebuilt_kernels
+    @allow_kernel_compilation
     def test_lifetime_positive_finite(self, toy_ring, test_context):
         line = toy_ring['line']
         tw   = toy_ring['twiss']

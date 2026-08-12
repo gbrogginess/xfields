@@ -8,7 +8,7 @@ from scipy.special import wofz as wofz_scipy
 import pytest
 import xobjects as xo
 from xobjects.context import available
-from xobjects.test_helpers import for_all_test_contexts, allow_no_prebuilt_kernels
+from xobjects.test_helpers import for_all_test_contexts, allow_kernel_compilation
 
 
 @pytest.fixture
@@ -78,7 +78,7 @@ def faddeeva_calculator():
 
 
 @for_all_test_contexts
-@allow_no_prebuilt_kernels(skip_when_forbid_compile=True)
+@allow_kernel_compilation(skip_when_forbid_compile=True)
 def test_faddeeva_w_q1(faddeeva_calculator, test_context):
 
     FaddeevaCalculator = faddeeva_calculator
@@ -123,7 +123,7 @@ def test_faddeeva_w_q1(faddeeva_calculator, test_context):
 
 
 @for_all_test_contexts
-@allow_no_prebuilt_kernels(skip_when_forbid_compile=True)
+@allow_kernel_compilation(skip_when_forbid_compile=True)
 def test_faddeeva_w_all_quadrants(faddeeva_calculator, test_context):
 
     FaddeevaCalculator = faddeeva_calculator
