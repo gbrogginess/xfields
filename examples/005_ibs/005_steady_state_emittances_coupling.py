@@ -22,7 +22,7 @@ line = xt.load("../../../xtrack/test_data/bessy3/bessy3.json")
 line.matrix_stability_tol = 1e-2
 line.configure_radiation(model="mean")
 line.compensate_radiation_energy_loss()
-tw = line.twiss(eneloss_and_damping=True)
+tw = line.twiss(radiation_analysis=True)
 
 ######################################
 # Steady-State Emittance Calculation #

@@ -203,7 +203,7 @@ def get_ibs_and_synrad_emittance_evolution(
         and that the `TwissTable` holds information on the equilibrium
         state from Synchrotron Radiation. This means calling first
         `line.configure_radiation(model="mean")` and then the `.twiss()`
-        method with `eneloss_and_damping=True`. Please refer to the Twiss
+        method with `radiation_analysis=True`. Please refer to the Twiss
         user guide in the `xsuite` documentation for more information.
 
     Warning
@@ -345,7 +345,7 @@ def get_ibs_and_synrad_emittance_evolution(
         LOGGER.error("Invalid TwissTable, does not have SR equilibrium properties. Did you configure radiation?")
         raise AttributeError(
             "The TwissTable must contain SR equilibrium emittances and damping constants. "
-            "Did you activate radiation and twiss with `eneloss_and_damping=True?`"
+            "Did you activate radiation and twiss with `radiation_analysis=True?`"
         )
     # ---------------------------------------------------------------------------------------------
     # Check for valid value of emittance_constraint and warn if constraint provided but factor is 0
@@ -432,7 +432,7 @@ def get_ibs_and_synrad_emittance_evolution(
     # Initialize values for the iterative process (first time step is revolution period)
     iterations: float = 0
     tolerance: float = np.inf
-    time_step: float = twiss.T_rev0
+    time_step: float = twiss.t_rev0
     # Structures for iterative results (time, IBS growth rates, computed emittances)
     time_deltas: list[float] = []  # stores the deltas (!), we do a cumsum at the end
     K_x: list[float] = []

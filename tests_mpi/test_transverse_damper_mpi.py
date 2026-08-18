@@ -56,7 +56,7 @@ def test_transverse_damper_mpi(test_context):
         betx=70, bety=80,
         qx=62.31, qy=60.32,
         longitudinal_mode=longitudinal_mode,
-        voltage_rf=v_rf, frequency_rf=f_rf, lag_rf=180,
+        voltage_rf=v_rf, frequency_rf=f_rf, phase_rf=np.pi,
         momentum_compaction_factor=momentum_compaction,
     )
 

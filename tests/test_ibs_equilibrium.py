@@ -27,7 +27,7 @@ def bessy3_line_with_radiation() -> xt.Line:
     line.configure_radiation(model="mean")
     line.compensate_radiation_energy_loss()
     # Run twiss in fixture to compile kernels once
-    line.twiss(eneloss_and_damping=True)
+    line.twiss(radiation_analysis=True)
     return line
 
 
@@ -46,7 +46,7 @@ def test_equilibrium_vs_analytical_constraint_coupling(
     """
     # -------------------------------------------
     # Get the twiss with SR effects from the configured line
-    tw = bessy3_line_with_radiation.twiss(eneloss_and_damping=True)
+    tw = bessy3_line_with_radiation.twiss(radiation_analysis=True)
     # -------------------------------------------
     # Compute the equilibrium emittances - coupling constraint
     result = tw.get_ibs_and_synrad_emittance_evolution(
@@ -86,7 +86,7 @@ def test_equilibrium_vs_analytical_constraint_excitation(
     """
     # -------------------------------------------
     # Get the twiss with SR effects from the configured line
-    tw = bessy3_line_with_radiation.twiss(eneloss_and_damping=True)
+    tw = bessy3_line_with_radiation.twiss(radiation_analysis=True)
     # -------------------------------------------
     # Compute the equilibrium emittances - excitation constraint
     result = tw.get_ibs_and_synrad_emittance_evolution(
@@ -129,7 +129,7 @@ def test_equilibrium_vs_analytical_no_constraint(
     """
     # -------------------------------------------
     # Get the twiss with SR effects from the configured line
-    tw = bessy3_line_with_radiation.twiss(eneloss_and_damping=True)
+    tw = bessy3_line_with_radiation.twiss(radiation_analysis=True)
     # -------------------------------------------
     # Compute the equilibrium emittances - no constraint
     # No constraint so no renormalization of transverse emittances
@@ -219,7 +219,7 @@ def test_equilibrium_vs_elegant(emittance_coupling_factor: float, bessy3_line_wi
     """
     # -------------------------------------------
     # Get the twiss with SR effects from the configured line
-    tw = bessy3_line_with_radiation.twiss(eneloss_and_damping=True)
+    tw = bessy3_line_with_radiation.twiss(radiation_analysis=True)
     # -------------------------------------------
     # Compute the equilibrium emittances - coupling constraint
     result = tw.get_ibs_and_synrad_emittance_evolution(
@@ -264,7 +264,7 @@ def test_equilibrium_vs_elegant(emittance_coupling_factor: float, bessy3_line_wi
 
 def test_missing_required_twiss_attributes_raises(bessy3_line_with_radiation: xt.Line):
     """Check we raise if Twiss has no SR equilibrium values."""
-    tw = bessy3_line_with_radiation.twiss(eneloss_and_damping=False)  # no tw.eq_*
+    tw = bessy3_line_with_radiation.twiss(radiation_analysis=False)  # no tw.eq_*
     # This should tell us we're missing something in the config
     with pytest.raises(
         AttributeError,
@@ -280,7 +280,7 @@ def test_missing_required_twiss_attributes_raises(bessy3_line_with_radiation: xt
 
 def test_missing_params_raises(bessy3_line_with_radiation: xt.Line):
     """Check that not provided required params raises."""
-    tw = bessy3_line_with_radiation.twiss(eneloss_and_damping=True)
+    tw = bessy3_line_with_radiation.twiss(radiation_analysis=True)
     # These should tell us we're necessary missing arguments
     with pytest.raises(AssertionError, match="Must provide 'formalism'"):
         tw.get_ibs_and_synrad_emittance_evolution(
@@ -315,7 +315,7 @@ def test_missing_params_raises(bessy3_line_with_radiation: xt.Line):
 @pytest.mark.parametrize("emittance_constraint", ["WRONG", "invalid"])
 def test_invalid_constraint_raises(emittance_constraint, bessy3_line_with_radiation: xt.Line):
     """Check we raise if the emittance coupling constraint is invalid."""
-    tw = bessy3_line_with_radiation.twiss(eneloss_and_damping=True)
+    tw = bessy3_line_with_radiation.twiss(radiation_analysis=True)
     # This should tell us we're missing something in the config
     with pytest.raises(AssertionError, match="Invalid 'emittance_constraint'"):
         tw.get_ibs_and_synrad_emittance_evolution(

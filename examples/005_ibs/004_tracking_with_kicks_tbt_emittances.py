@@ -17,7 +17,7 @@ from xfields.ibs._formulary import _bunch_length, _gemitt_x, _gemitt_y, _sigma_d
 line = xt.load("../../../xtrack/test_data/clic_dr/line.json")
 cavities = [element for element in line.elements if isinstance(element, xt.Cavity)]
 for cavity in cavities:
-    cavity.lag = 180
+    cavity.phase = np.pi
 tw = line.twiss(method="4d")
 
 #######################################
@@ -26,7 +26,7 @@ tw = line.twiss(method="4d")
 
 # ibs_kick = xf.IBSKineticKick(num_slices=50)
 ibs_kick = xf.IBSAnalyticalKick(formalism="nagaitsev", num_slices=50)
-line.configure_intrabeam_scattering(
+line.xfields.ibs_configure(
     element=ibs_kick, name="ibskick", at=line.get_length(), update_every=50
 )
 

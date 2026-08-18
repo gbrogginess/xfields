@@ -94,7 +94,8 @@ def configure_beam_beam_elements(bb_df_cw, bb_df_acw, line_cw, line_acw,
             assert sv_ip['Y', ip_name] == 0
             assert sv_ip['Z', ip_name] == 0
 
-        sigmas = twiss.get_betatron_sigmas(nemitt_x=nemitt_x, nemitt_y=nemitt_y)
+        sigmas = twiss.get_beam_covariance(
+            nemitt_x=nemitt_x, nemitt_y=nemitt_y)
 
         bb_df['self_num_particles'] = num_particles * bb_df['self_frac_of_bunch']
 
@@ -159,8 +160,9 @@ def install_dummy_bb_lenses(bb_df, line):
     ip_names = bb_df['ip_name'].unique().tolist()
 
     s_ips = {}
+    tt = line.get_table()
     for iipp in ip_names:
-        s_ips[iipp] = line.get_s_position(iipp)
+        s_ips[iipp] = tt['s', iipp]
 
     s_insertions = []
     for nn in bb_df.index:
@@ -736,7 +738,6 @@ def measure_crabbing(line, bb_df, reverse):
             if reverse:
                 zeta0 = -zeta0 # LHC convention
             tw4d_crab = line.twiss(method='4d',zeta0=zeta0,
-                                   freeze_longitudinal=True,
                                    reverse=False) # Ignore twiss_default for reverse
             if reverse:
                 tw4d_crab = tw4d_crab.reverse()

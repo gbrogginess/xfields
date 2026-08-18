@@ -114,7 +114,8 @@ def install_spacecharge_frozen(line=None, _buffer=None,
     # Insert spacecharge elements
     line._insert_thin_elements_at_s(insertions)
 
-    actual_s_spch = line.get_s_position(sc_names)
+    tt = line.get_table()
+    actual_s_spch = np.array([tt['s', nn] for nn in sc_names])
 
     sc_lengths = 0*s_spacecharge
     sc_lengths[:-1] = np.diff(actual_s_spch)
@@ -125,7 +126,7 @@ def install_spacecharge_frozen(line=None, _buffer=None,
                                            exclude_types_starting_with='SpaceCh')
 
     line_sc_off.build_tracker()
-    tw_at_sc = line_sc_off.twiss(particle_ref=particle_ref, at_elements=sc_names, method='4d')
+    tw_at_sc = line_sc_off.twiss4d(particle_ref=particle_ref).rows[sc_names]
 
     # Configure lenses
     for ii, sc in enumerate(sc_elements):

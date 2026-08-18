@@ -386,7 +386,7 @@ class IBSAnalyticalKick(IBSKick):
         # (the particles.delta in Xsuite), we multiply by beta0**2 to adapt
         LOGGER.debug("Computing simple kick coefficients")
         beta0 = self._twiss.beta0
-        revolution_frequency: float = 1 / self._twiss.T_rev0
+        revolution_frequency: float = 1 / self._twiss.t_rev0
         Kx = float(sigma_px_normalized * np.sqrt(2 * scaling_factor * Tx / revolution_frequency))
         Ky = float(sigma_py_normalized * np.sqrt(2 * scaling_factor * Ty / revolution_frequency))
         Kz = float(sigma_delta * np.sqrt(2 * scaling_factor * Tz / revolution_frequency) * beta0**2)
@@ -578,7 +578,7 @@ class IBSKineticKick(IBSKick):
         beta0: float = self._twiss.beta0
         gamma0: float = self._twiss.gamma0
         radius: float = self._twiss.particle_on_co.get_classical_particle_radius0()
-        circumference: float = self._twiss.circumference
+        circumference: float = self._twiss.line_length
         betx = self._twiss.betx
         bety = self._twiss.bety
         dx = self._twiss.dx
@@ -680,7 +680,7 @@ class IBSKineticKick(IBSKick):
         nplike = particles._context.nplike_lib
         # ----------------------------------------------------------------------------------------------
         # Compute delta_t for the turn and the line density (rho(z) term in Eq (19) of reference)
-        dt: float = self._twiss.T_rev0
+        dt: float = self._twiss.t_rev0
         rho_z: ArrayLike = line_density(particles, self.num_slices)  # on context
         # ----------------------------------------------------------------------------------------------
         # TODO: Michalis wrote rho(z) in the paper but the way he had implemented it, it is actually
