@@ -10,7 +10,7 @@ import xtrack as xt
 from ..beam_elements.radiative_bhabha import RadiativeBhabhaMarker
 from ..touschek.generator import (
     _free_names, _geometric_emittances, _is_free, _is_sequence, _per_marker,
-    _resolve_seed)
+    _resolve_seed, _stream_seed)
 
 
 def _check_configured(name, marker, particle_ref):
@@ -322,6 +322,87 @@ class RadiativeBhabhaGenerator:
                 compt_scale=compt_scale,
                 flag_beamsize_effect=flag_beamsize_effect,
                 n_generated=n_generated, delta_cut=delta_cut, seed=seed)
+
+    def generate(self, at=None, *, replica=0, n_replicas=1, seed=None):
+        """
+        Generate radiative Bhabha scattered particles at the markers.
+
+        At each marker, ``n_generated`` particles of a Gaussian bunch cross
+        the opposing bunch with the radiative Bhabha generator. The particles
+        that emitted a photon and have ``delta - delta_co < delta_cut`` are
+        kept. Each carries as weight the rate it represents [1/s per bunch],
+        divided by ``n_replicas``: the weights of a marker sum to the rate of
+        the emissions beyond the cut at its interaction point.
+
+        The particles of a marker are tracked from the marker itself, e.g.
+        ``line.track(part, ele_start=name, ele_stop=name, num_turns=...)``,
+        and the samples of different markers or replicas, generated in the
+        same or in different jobs, can then be merged with
+        :meth:`xtrack.Particles.merge` and given to :meth:`analyse`.
+
+        Parameters
+        ----------
+        at : str, sequence of str, or None, optional
+            Markers at which particles are generated. If ``None`` (default),
+            all the markers of the line.
+        replica : int, optional
+            Index of the replica: replicas of a marker are independent
+            samples, e.g. generated in different jobs. Default ``0``.
+        n_replicas : int, optional
+            Number of replicas of each marker that are merged. The weights are
+            divided by it. Default ``1``.
+        seed : int or None, optional
+            Seed of the random-number streams. If ``None`` (default), the seed
+            stored on each marker by :meth:`configure`. The stream of each
+            marker and replica is derived from the seed, the name of the
+            marker and the replica, so it does not depend on the other
+            markers that are generated.
+
+        Returns
+        -------
+        particles : xtrack.Particles or dict
+            If ``at`` is a string, the particles generated at that marker.
+            Otherwise, a mapping ``{name: xtrack.Particles}`` in line order.
+        """
+        line = self.line
+        names = self._markers(at)
+
+        _check_positive_integer(n_replicas, 'n_replicas')
+        if (isinstance(replica, (bool, np.bool_))
+                or not isinstance(replica, (int, np.integer))
+                or not 0 <= replica < n_replicas):
+            raise ValueError(
+                f"`replica` must be an integer in [0, n_replicas) "
+                f"(got {replica} with n_replicas={n_replicas}).")
+        if seed is not None:
+            seed = _resolve_seed(seed)
+
+        particle_ref = line.particle_ref
+        markers = {nn: line.element_dict[nn] for nn in names}
+        for nn, marker in markers.items():
+            _check_configured(nn, marker, particle_ref)
+
+        tab = line.get_table()
+        element_index = {nn: ii for ii, nn in enumerate(line.element_names)}
+
+        particles = {}
+        for nn, marker in markers.items():
+            try:
+                particles[nn] = marker._generate(
+                    particle_ref=particle_ref,
+                    at_element=element_index[nn],
+                    s=tab['s', nn],
+                    seed=_stream_seed(marker.seed if seed is None else seed,
+                                      nn, replica),
+                    weight_scale=1.0 / n_replicas,
+                )
+            except ValueError as error:
+                raise ValueError(
+                    f"RadiativeBhabhaMarker '{nn}': {error}") from error
+
+        if isinstance(at, str):
+            return particles[at]
+        return particles
 
     def _markers(self, at=None):
         """
