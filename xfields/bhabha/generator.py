@@ -12,7 +12,7 @@ from ..touschek.generator import (
     _free_names, _geometric_emittances, _is_free, _is_sequence, _per_marker,
     _resolve_seed, _stream_seed)
 from ..touschek.analysis import (
-    _replica_variance, _sample_sums, _tracked)
+    _lost, _replica_variance, _sample_sums, _tracked)
 from .analysis import RadiativeBhabhaResult
 
 
@@ -547,6 +547,67 @@ class RadiativeBhabhaGenerator:
             rate_tracking_error=rate_tracking_error,
             lifetime_tracking_error=lifetime_tracking_error,
         )
+
+    def run(self, n_turns, *, at=None, n_replicas=1, keep_particles=False,
+            with_progress=False):
+        """
+        Generate, track and analyse the radiative Bhabha particles of the
+        markers.
+
+        Convenience helper doing in one call the steps of the simulation: the
+        particles of each marker (and replica) are generated with
+        :meth:`generate`, tracked from the marker back to it with
+        ``line.track(part, ele_start=name, ele_stop=name, num_turns=n_turns)``
+        and analysed with :meth:`analyse`. Doing these steps explicitly gives
+        the same result, and allows splitting them over separate jobs or
+        refining the loss locations before the analysis.
+
+        Parameters
+        ----------
+        n_turns : int
+            Number of turns to track.
+        at : str, sequence of str, or None, optional
+            Markers at which particles are generated. If ``None`` (default),
+            all the markers of the line.
+        n_replicas : int, optional
+            Number of replicas of each marker. With more than one, the result
+            includes the Monte Carlo error of the loss rate.
+        keep_particles : bool, optional
+            If ``True``, the result keeps the particles of each marker (its
+            replicas merged), all of them merged, and the lost ones (if any).
+        with_progress : bool, optional
+            Forwarded to ``line.track``.
+
+        Returns
+        -------
+        result : RadiativeBhabhaResult
+            Result of :meth:`analyse` for the particles of each marker.
+        """
+        _check_positive_integer(n_turns, 'n_turns')
+        _check_positive_integer(n_replicas, 'n_replicas')
+
+        line = self.line
+        names = self._markers(at)
+        samples = {nn: [] for nn in names}
+        for replica in range(n_replicas):
+            generated = self.generate(
+                at=names, replica=replica, n_replicas=n_replicas)
+            for nn, part in generated.items():
+                line.track(part, ele_start=nn, ele_stop=nn,
+                           num_turns=n_turns, with_progress=with_progress)
+                samples[nn].append(part)
+
+        result = self.analyse(samples)
+        if keep_particles:
+            result.particles_by_element = {
+                nn: vv[0] if len(vv) == 1 else xt.Particles.merge(vv)
+                for nn, vv in samples.items()}
+            result.particles = xt.Particles.merge(
+                list(result.particles_by_element.values()))
+            lost = _lost(result.particles)
+            if np.any(lost):
+                result.lost_particles = result.particles.filter(lost)
+        return result
 
     def _markers(self, at=None):
         """
