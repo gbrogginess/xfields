@@ -258,3 +258,79 @@ def test_generate_checks_its_arguments(ring):
     unconfigured = _ring_with_markers()
     with pytest.raises(ValueError, match='not configured'):
         unconfigured.xfields.bhabha.generate()
+
+
+############
+# Analysis #
+############
+
+def _fake_track(part, seed):
+    """Mark about half of the generated particles as lost."""
+    rng = np.random.default_rng(seed)
+    alive = part.state > 0
+    lost = alive & (rng.uniform(size=len(part.state)) < 0.5)
+    part.state[lost] = 0
+    part.at_turn[alive] = 1
+    return part
+
+
+def _lost_weight(part):
+    return float(np.sum(part.weight[part.state == 0]))
+
+
+def test_analyse_merged_particles_and_samples_by_marker(ring):
+    line, _ = ring
+    bhabha = line.xfields.bhabha
+    samples = {nn: [_fake_track(bhabha.generate(at=nn, replica=rr,
+                                                n_replicas=2), seed=rr)
+                    for rr in range(2)]
+               for nn in bhabha.marker_names}
+    all_particles = [pp for vv in samples.values() for pp in vv]
+    rate_lost = sum(_lost_weight(pp) for pp in all_particles)
+
+    merged = bhabha.analyse(xt.Particles.merge(all_particles))
+    assert merged.tracked
+    assert np.isclose(merged.rate_tracking, rate_lost)
+    assert np.isclose(merged.lifetime_tracking,
+                      BEAM['bunch_intensity']/rate_lost)
+    assert merged.rate_tracking_error is None
+
+    by_marker = bhabha.analyse(samples)
+    assert np.isclose(by_marker.rate_tracking, rate_lost)
+    assert np.isclose(by_marker.rate_generated, merged.rate_generated)
+    assert by_marker.rate_tracking_error > 0
+    assert by_marker.lifetime_tracking_error > 0
+    rates = by_marker.local_rates
+    assert list(rates.name) == bhabha.marker_names
+    assert np.all(rates.n_replicas == 2)
+    for ii, nn in enumerate(bhabha.marker_names):
+        assert np.isclose(rates.sum_lost_weight[ii],
+                          sum(_lost_weight(pp) for pp in samples[nn]))
+
+
+def test_analyse_checks_its_arguments(ring):
+    line, _ = ring
+    bhabha = line.xfields.bhabha
+    part = bhabha.generate(at='bhabha.0')
+    with pytest.raises(ValueError):
+        bhabha.analyse()
+    with pytest.raises(TypeError):
+        bhabha.analyse({'bhabha.0': 'not particles'})
+    with pytest.raises(ValueError):
+        bhabha.analyse({'bhabha.0': part}, at='bhabha.0')
+
+
+def test_run_tracks_from_the_markers(ring):
+    _, twiss = ring
+    line = _configured(twiss)
+    # an aperture in the dispersive region catches the off-momentum particles
+    line.insert('aperture', xt.LimitEllipse(a=5e-3, b=5e-3),
+                at='d2.2@center')
+    result = line.xfields.bhabha.run(n_turns=5, n_replicas=2,
+                                     keep_particles=True)
+    assert result.tracked
+    assert 0 < result.rate_tracking <= result.rate_generated
+    assert result.rate_tracking_error > 0
+    assert set(result.particles_by_element) == {'bhabha.0', 'bhabha.1'}
+    lost = result.lost_particles
+    assert np.isclose(np.sum(lost.weight), result.rate_tracking)
