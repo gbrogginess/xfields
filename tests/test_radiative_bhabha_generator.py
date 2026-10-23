@@ -161,3 +161,100 @@ def test_configure_checks_its_arguments(ring):
         bhabha.configure(**config, at='mqf.1')
     with pytest.raises(ValueError):
         bhabha.configure(**config, at='no_such_element')
+
+
+##############
+# Generation #
+##############
+
+def test_generated_particles(ring):
+    line, twiss = ring
+    part = line.xfields.bhabha.generate(at='bhabha.1')
+    marker = line['bhabha.1']
+    tab = line.get_table()
+
+    n = np.sum(part.state > xt.particles.LAST_INVALID_STATE)
+    assert n > 100
+    assert part._capacity == 2*n
+    alive = part.state > 0
+    assert np.all(part.at_element[:n] == line.element_names.index('bhabha.1'))
+    assert np.allclose(part.s[:n], tab['s', 'bhabha.1'])
+    assert np.all(part.delta[alive] - marker.delta_co < marker.delta_cut)
+    # the rate of the crossings of the bunch particles, scaled down by
+    # compt_scale, shared by the generated particles
+    assert np.allclose(
+        part.weight[:n],
+        BEAM['bunch_intensity']/twiss.t_rev0
+        / (GENERATOR['compt_scale']*GENERATOR['n_generated']))
+    assert marker.luminosity > 0
+    assert 0 < marker.mean_photons_per_particle < 0.1
+
+
+def test_generation_is_reproducible(ring):
+    line, _ = ring
+    bhabha = line.xfields.bhabha
+    part = bhabha.generate(at='bhabha.0')
+    _assert_same_particles(part, bhabha.generate(at='bhabha.0'))
+    # independent of the other markers generated
+    _assert_same_particles(part, bhabha.generate()['bhabha.0'])
+    # another seed gives other particles
+    other = bhabha.generate(at='bhabha.0', seed=1)
+    assert not np.array_equal(part.delta[:10], other.delta[:10])
+
+
+def test_replicas(ring):
+    line, _ = ring
+    bhabha = line.xfields.bhabha
+    single = bhabha.generate(at='bhabha.0')
+    replicas = [bhabha.generate(at='bhabha.0', replica=rr, n_replicas=2)
+                for rr in range(2)]
+    assert np.allclose(replicas[0].weight[0], single.weight[0]/2)
+    assert not np.array_equal(replicas[0].delta[:10], replicas[1].delta[:10])
+    with pytest.raises(ValueError):
+        bhabha.generate(at='bhabha.0', replica=2, n_replicas=2)
+
+
+def test_generation_from_a_reloaded_line(ring, tmp_path):
+    line, _ = ring
+    line.to_json(tmp_path / 'line.json')
+    reloaded = xt.load(tmp_path / 'line.json')
+    assert reloaded.xfields.bhabha.marker_names == ['bhabha.0', 'bhabha.1']
+    _assert_same_particles(line.xfields.bhabha.generate(at='bhabha.1'),
+                           reloaded.xfields.bhabha.generate(at='bhabha.1'))
+
+
+def test_rate_does_not_depend_on_compt_scale(ring):
+    """
+    compt_scale scales up the emissions and down the weights: the rate of
+    the emissions beyond the cut is the same, within the statistical error.
+    """
+    _, twiss = ring
+    rates = []
+    for compt_scale, n_generated in ((1e10, 20_000), (2e9, 100_000)):
+        line = _configured(twiss, at='bhabha.0', compt_scale=compt_scale,
+                           n_generated=n_generated)
+        part = line.xfields.bhabha.generate(at='bhabha.0')
+        weight = part.weight[part.state > 0]
+        rates.append((weight.sum(), weight[0]*np.sqrt(len(weight))))
+    (rate_1, error_1), (rate_2, error_2) = rates
+    assert abs(rate_1 - rate_2) < 4*np.hypot(error_1, error_2)
+
+
+def test_pileup_warning(ring):
+    _, twiss = ring
+    line = _configured(twiss, at='bhabha.0', compt_scale=1e11,
+                       n_generated=2_000)
+    with pytest.warns(UserWarning, match='photons per particle'):
+        line.xfields.bhabha.generate(at='bhabha.0')
+
+
+def test_generate_checks_its_arguments(ring):
+    line, _ = ring
+    bhabha = line.xfields.bhabha
+    with pytest.raises(ValueError):
+        bhabha.generate(n_replicas=0)
+    with pytest.raises(TypeError):
+        bhabha.generate(at='mqf.1')
+    unconfigured = _ring_with_markers()
+    with pytest.raises(ValueError, match='not configured'):
+        unconfigured.xfields.bhabha.generate()
