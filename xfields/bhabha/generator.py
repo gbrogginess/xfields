@@ -1,0 +1,373 @@
+# copyright ################################# #
+# This file is part of the Xfields Package.   #
+# Copyright (c) CERN, 2026.                   #
+# ########################################### #
+
+import numpy as np
+
+import xtrack as xt
+
+from ..beam_elements.radiative_bhabha import RadiativeBhabhaMarker
+from ..touschek.generator import (
+    _free_names, _geometric_emittances, _is_free, _is_sequence, _per_marker,
+    _resolve_seed)
+
+
+def _check_configured(name, marker, particle_ref):
+    """
+    Check that a marker is configured for the reference particle of the line.
+    """
+    if not marker.p0c > 0:
+        raise ValueError(
+            f"RadiativeBhabhaMarker '{name}' is not configured: call "
+            "`line.xfields.bhabha.configure(...)` first.")
+    p0c = particle_ref.p0c[0]
+    if abs(marker.p0c - p0c) > 1e-10 * p0c:
+        raise ValueError(
+            f"RadiativeBhabhaMarker '{name}' is configured for p0c = "
+            f"{marker.p0c:.10g} eV, but the reference particle of the line "
+            f"has p0c = {p0c:.10g} eV: configure the markers again.")
+
+
+def _check_positive_integer(value, name):
+    if (isinstance(value, (bool, np.bool_))
+            or not isinstance(value, (int, np.integer)) or value < 1):
+        raise ValueError(f"`{name}` must be a positive integer.")
+
+
+class RadiativeBhabhaGenerator:
+    """
+    Radiative Bhabha simulation of a line, based on the
+    :class:`xfields.RadiativeBhabhaMarker` elements installed at its
+    interaction points.
+
+    An instance bound to a line is available as ``line.xfields.bhabha``. The
+    generator holds no state other than the line: the configuration is
+    stored in the markers, so that a line saved to JSON after it has been
+    configured generates the same particles once loaded again.
+
+    At each marker, the particles of one bunch cross the opposing bunch with
+    the radiative Bhabha generator of :class:`xfields.BeamBeamBiGaussian3D`.
+    The particles that emitted a photon, and are beyond the configured
+    momentum cut, are kept with the rate they represent as weight: tracked
+    from the marker, the weight of the lost ones gives the loss rate, the
+    lifetime and the loss locations.
+
+    Parameters
+    ----------
+    line : xtrack.Line
+        Line containing, or receiving, the radiative Bhabha markers.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        bhabha = line.xfields.bhabha
+        bhabha.install_markers(at=['ip.1', 'ip.2'])
+        bhabha.configure(nemitt_x=7e-5, nemitt_y=1.4e-7, sigma_z=15e-3,
+                         sigma_delta=1e-3, bunch_intensity=2e11, phi=15e-3,
+                         compt_scale=1e6, n_generated=200_000,
+                         delta_cut=-0.006, seed=1997)
+
+        particles_list = []
+        for name in bhabha.marker_names:
+            part = bhabha.generate(at=name)
+            line.track(part, ele_start=name, ele_stop=name, num_turns=500)
+            particles_list.append(part)
+
+        result = bhabha.analyse(xt.Particles.merge(particles_list))
+        print(result.lifetime_tracking)
+    """
+
+    def __init__(self, line):
+        if not isinstance(line, xt.Line):
+            raise TypeError(
+                f"`line` must be an xtrack.Line (got {type(line).__name__}).")
+        self._line = line
+
+    @property
+    def line(self):
+        """
+        Line of the radiative Bhabha simulation.
+
+        Returns
+        -------
+        line : xtrack.Line
+            Line bound to this generator.
+        """
+        return self._line
+
+    @property
+    def marker_names(self):
+        """
+        Names of the radiative Bhabha markers of the line.
+
+        Returns
+        -------
+        names : list of str
+            Names of the :class:`xfields.RadiativeBhabhaMarker` elements, in
+            line order.
+        """
+        element_dict = self.line.element_dict
+        names = [nn for nn in self.line.element_names
+                 if isinstance(element_dict[nn], RadiativeBhabhaMarker)]
+        if len(set(names)) != len(names):
+            repeated = sorted({nn for nn in names if names.count(nn) > 1})
+            raise ValueError(
+                f"Radiative Bhabha markers {repeated} appear more than once "
+                "in the line: each marker must be a distinct element.")
+        return names
+
+    def install_markers(self, at, *, from_=None, anchor=None,
+                        from_anchor=None, names=None, prefix='bhabha'):
+        """
+        Install radiative Bhabha markers in the line, at its interaction
+        points.
+
+        Each marker is a new :class:`xfields.RadiativeBhabhaMarker` element,
+        placed with ``env.place`` and inserted with ``line.insert``: ``at``,
+        ``from_``, ``anchor`` and ``from_anchor`` have the same meaning as
+        there. Installing the markers by hand in the same way is equivalent.
+
+        Parameters
+        ----------
+        at : float, str, xdeps reference, or sequence of them
+            Position of each marker, evaluated at installation: an ``s``
+            position [m], an expression of the environment variables, the
+            name of an element (e.g. the marker of the interaction point), or
+            a reference ``'name@anchor'`` with ``anchor`` one of ``'start'``,
+            ``'center'`` and ``'end'``. With ``from_``, the offset from the
+            reference element.
+        from_ : str or sequence of str, optional
+            Element from which ``at`` is measured.
+        anchor : {'start', 'center', 'end'} or sequence of them, optional
+            Anchor of the marker placed at ``at``.
+        from_anchor : {'start', 'center', 'end'} or sequence of them, optional
+            Anchor of ``from_`` from which ``at`` is measured.
+        names : str or sequence of str, optional
+            Names of the new markers. By default ``f'{prefix}.{i}'``, with the
+            lowest indices whose names are free in the environment.
+        prefix : str, optional
+            Prefix of the default names.
+
+        Returns
+        -------
+        names : list of str
+            Names of the installed markers.
+        """
+        line = self.line
+        env = line.env
+
+        at = list(at) if _is_sequence(at) else [at]
+        n_markers = len(at)
+        if n_markers == 0:
+            raise ValueError("`at` must give at least one position.")
+        from_ = _per_marker(from_, n_markers, 'from_')
+        anchor = _per_marker(anchor, n_markers, 'anchor')
+        from_anchor = _per_marker(from_anchor, n_markers, 'from_anchor')
+
+        if names is None:
+            names = _free_names(env, prefix, n_markers)
+        else:
+            names = _per_marker(
+                [names] if isinstance(names, str) else names,
+                n_markers, 'names')
+            if len(set(names)) != len(names):
+                raise ValueError("`names` contains repeated names.")
+            for nn in names:
+                if not _is_free(env, nn):
+                    raise ValueError(
+                        f"The name '{nn}' is already used in the environment.")
+
+        places = []
+        for nn, aa, ff, an, fa in zip(names, at, from_, anchor, from_anchor):
+            env.elements[nn] = RadiativeBhabhaMarker()
+            places.append(env.place(
+                nn, at=aa, from_=ff, anchor=an, from_anchor=fa))
+        line.insert(places)
+
+        return list(names)
+
+    def configure(self, *, bunch_intensity=None, sigma_z=None,
+                  sigma_delta=None, phi=None, compt_scale=None,
+                  n_generated=None, nemitt_x=None, nemitt_y=None,
+                  gemitt_x=None, gemitt_y=None, alpha=0.0, other_beam_q0=None,
+                  delta_cut=0.0, n_slices=100, compt_x_min=1e-4,
+                  flag_beamsize_effect=1, seed=None, twiss=None, method='6d',
+                  at=None, **kwargs):
+        """
+        Configure the radiative Bhabha markers of the line.
+
+        Stores on each marker the local optics and closed orbit, the beam
+        parameters, the crossing geometry and the settings of the generator.
+        The two beams are taken as symmetric: the opposing bunch has the same
+        intensity, emittances, bunch length and optics at the interaction
+        point.
+
+        The whole configuration is stored on the markers: a line saved to
+        JSON after this call generates the same particles once loaded again.
+
+        Parameters
+        ----------
+        bunch_intensity : float
+            Number of particles in one bunch.
+        sigma_z : float
+            RMS bunch length [m], including the lengthening by beamstrahlung
+            if relevant.
+        sigma_delta : float
+            RMS relative momentum spread.
+        phi : float
+            Half crossing angle [rad].
+        compt_scale : float
+            Factor scaling up the emission probability of every particle, so
+            that enough photons are emitted by ``n_generated`` particles. It
+            does not bias the rates, as long as the mean number of photons
+            per particle stays well below 1 (a warning is issued at the
+            generation above 0.1).
+        n_generated : int
+            Number of bunch particles sent through the interaction point at
+            each generation, at each marker.
+        nemitt_x, nemitt_y : float, optional
+            Normalized emittances. Mutually exclusive with ``gemitt_x`` and
+            ``gemitt_y``.
+        gemitt_x, gemitt_y : float, optional
+            Geometric emittances. Mutually exclusive with ``nemitt_x`` and
+            ``nemitt_y``.
+        alpha : float, optional
+            Angle of the crossing plane [rad]. Default ``0`` (horizontal).
+        other_beam_q0 : float or None, optional
+            Charge of the particles of the opposing beam [e]. If ``None``
+            (default), opposite to the charge of the reference particle.
+        delta_cut : float, optional
+            Only the particles with ``delta - delta_co < delta_cut`` after
+            the emission are kept. A cut well inside the momentum acceptance
+            (e.g. half of it) only removes particles that cannot be lost, and
+            saves their tracking. Default ``0``: all the particles that
+            emitted a photon below the closed-orbit momentum.
+        n_slices : int, optional
+            Number of longitudinal slices of the opposing bunch.
+        compt_x_min : float, optional
+            Low energy cut of the virtual photon spectrum, in units of
+            ``gamma^-2``.
+        flag_beamsize_effect : int, optional
+            Beam-size effect on the cross section: 1 (default) on, 0 off.
+        seed : int or None, optional
+            Seed of the random-number streams of the markers. If ``None``, a
+            seed is drawn now and stored, so that the generation stays
+            reproducible.
+        twiss : xtrack.TwissTable or None, optional
+            Twiss table of the line. If ``None``, it is computed with
+            ``line.twiss(method=method, **kwargs)``.
+        method : {'6d', '4d'}, optional
+            Twiss method, used if ``twiss`` is ``None``.
+        at : str, sequence of str, or None, optional
+            Markers to configure. If ``None`` (default), all the markers.
+        **kwargs
+            Keyword arguments forwarded to ``line.twiss`` if ``twiss`` is
+            ``None``.
+
+        Returns
+        -------
+        None
+        """
+        line = self.line
+        if getattr(line, "particle_ref", None) is None:
+            raise ValueError("`line` must have a `particle_ref`.")
+        for name, value in (
+                ("bunch_intensity", bunch_intensity),
+                ("sigma_z", sigma_z),
+                ("sigma_delta", sigma_delta),
+                ("phi", phi),
+                ("compt_scale", compt_scale),
+                ("n_generated", n_generated)):
+            if value is None:
+                raise ValueError(f"`{name}` is required.")
+        if bunch_intensity < 0:
+            raise ValueError("`bunch_intensity` must be non-negative.")
+        if not compt_scale > 0:
+            raise ValueError("`compt_scale` must be positive.")
+        _check_positive_integer(n_generated, 'n_generated')
+        _check_positive_integer(n_slices, 'n_slices')
+
+        particle_ref = line.particle_ref
+        gemitt_x, gemitt_y = _geometric_emittances(
+            particle_ref, nemitt_x=nemitt_x, nemitt_y=nemitt_y,
+            gemitt_x=gemitt_x, gemitt_y=gemitt_y)
+        if other_beam_q0 is None:
+            other_beam_q0 = -particle_ref.q0
+        seed = _resolve_seed(seed)
+
+        # Check the markers before the (long) twiss
+        names = self._markers(at)
+
+        if twiss is None:
+            twiss = line.twiss(method=method, **kwargs)
+
+        for nn in names:
+            line.element_dict[nn]._configure(
+                p0c=particle_ref.p0c[0],
+                bunch_intensity=bunch_intensity,
+                gemitt_x=gemitt_x, gemitt_y=gemitt_y,
+                sigma_z=sigma_z, sigma_delta=sigma_delta,
+                alfx=twiss['alfx', nn], betx=twiss['betx', nn],
+                alfy=twiss['alfy', nn], bety=twiss['bety', nn],
+                dx=twiss['dx', nn], dpx=twiss['dpx', nn],
+                dy=twiss['dy', nn], dpy=twiss['dpy', nn],
+                x_co=twiss['x', nn], px_co=twiss['px', nn],
+                y_co=twiss['y', nn], py_co=twiss['py', nn],
+                zeta_co=twiss['zeta', nn], delta_co=twiss['delta', nn],
+                t_rev0=twiss.t_rev0,
+                phi=phi, alpha=alpha, other_beam_q0=other_beam_q0,
+                n_slices=n_slices, compt_x_min=compt_x_min,
+                compt_scale=compt_scale,
+                flag_beamsize_effect=flag_beamsize_effect,
+                n_generated=n_generated, delta_cut=delta_cut, seed=seed)
+
+    def _markers(self, at=None):
+        """
+        Validated names of the selected markers, in line order.
+
+        Parameters
+        ----------
+        at : str, sequence of str, or None
+            Selected markers. ``None`` selects all the markers of the line.
+
+        Returns
+        -------
+        names : list of str
+            Names of the selected markers, in line order.
+        """
+        names = self.marker_names
+        if at is None:
+            if len(names) == 0:
+                raise ValueError(
+                    "The line does not contain any RadiativeBhabhaMarker. "
+                    "Install them with "
+                    "`line.xfields.bhabha.install_markers(...)`.")
+            return names
+
+        if isinstance(at, str):
+            selected = [at]
+        elif hasattr(at, '__iter__'):
+            selected = list(at)
+        else:
+            raise TypeError(
+                "Radiative Bhabha markers are selected by name "
+                f"(got {type(at).__name__}).")
+        if len(selected) == 0:
+            raise ValueError("No radiative Bhabha marker selected.")
+        position = {nn: ii for ii, nn in enumerate(names)}
+        for nn in selected:
+            if not isinstance(nn, str):
+                raise TypeError(
+                    "Radiative Bhabha markers are selected by name "
+                    f"(got {type(nn).__name__}).")
+            if nn in position:
+                continue
+            if nn in set(self.line.element_names):
+                raise TypeError(
+                    f"Element '{nn}' is not a RadiativeBhabhaMarker "
+                    f"(got {type(self.line.element_dict[nn]).__name__}).")
+            raise ValueError(f"Element '{nn}' is not present in the line.")
+
+        return sorted(set(selected), key=position.__getitem__)
