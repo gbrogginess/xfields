@@ -10,9 +10,10 @@ class XfieldsLineAPI:
 
     The public methods use flat prefixes (for example ``spacecharge_*``) so
     the reference guide can document one facade class without introducing
-    many nested API containers. The Touschek tools are the exception: they
-    are grouped in :attr:`touschek`, a :class:`xfields.TouschekGenerator`
-    bound to the line.
+    many nested API containers. The Touschek and radiative Bhabha tools are
+    the exception: they are grouped in :attr:`touschek`, a
+    :class:`xfields.TouschekGenerator`, and :attr:`bhabha`, a
+    :class:`xfields.RadiativeBhabhaGenerator`, bound to the line.
     """
 
     def __init__(self, line):
@@ -37,6 +38,22 @@ class XfieldsLineAPI:
         from .touschek.generator import TouschekGenerator
 
         return TouschekGenerator(self.line)
+
+    @property
+    def bhabha(self):
+        """
+        Radiative Bhabha simulation of the line.
+
+        Returns
+        -------
+        bhabha : xfields.RadiativeBhabhaGenerator
+            Generator bound to the line, to install and configure the
+            radiative Bhabha markers at the interaction points, generate the
+            scattered particles and analyse them.
+        """
+        from .bhabha.generator import RadiativeBhabhaGenerator
+
+        return RadiativeBhabhaGenerator(self.line)
 
     def spacecharge_install_frozen(self, **kwargs):
         """
