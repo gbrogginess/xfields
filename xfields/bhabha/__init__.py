@@ -3,4 +3,5 @@
 # Copyright (c) CERN, 2026.                   #
 # ########################################### #
 
+from .analysis import RadiativeBhabhaResult
 from .generator import RadiativeBhabhaGenerator

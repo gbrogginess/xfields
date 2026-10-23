@@ -17,7 +17,7 @@ from .slicers import UniformBinSlicer
 from .solvers.fftsolvers import FFTSolver3D
 
 from .touschek import TouschekGenerator, TouschekResult
-from .bhabha import RadiativeBhabhaGenerator
+from .bhabha import RadiativeBhabhaGenerator, RadiativeBhabhaResult
 from .line_tools import XfieldsLineAPI
 
 from .beam_elements.spacecharge import SpaceCharge3D, SpaceChargeBiGaussian

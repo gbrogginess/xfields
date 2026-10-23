@@ -11,6 +11,9 @@ from ..beam_elements.radiative_bhabha import RadiativeBhabhaMarker
 from ..touschek.generator import (
     _free_names, _geometric_emittances, _is_free, _is_sequence, _per_marker,
     _resolve_seed, _stream_seed)
+from ..touschek.analysis import (
+    _replica_variance, _sample_sums, _tracked)
+from .analysis import RadiativeBhabhaResult
 
 
 def _check_configured(name, marker, particle_ref):
@@ -403,6 +406,147 @@ class RadiativeBhabhaGenerator:
         if isinstance(at, str):
             return particles[at]
         return particles
+
+    def analyse(self, particles=None, *, at=None):
+        """
+        Analyse the tracked radiative Bhabha particles.
+
+        The rates are the total weights: of the generated particles (the rate
+        of the emissions beyond the cut) and of the lost ones (any
+        ``state <= 0``, e.g. on an aperture or in a collimator). Secondaries
+        produced while tracking carry the weight of their parent and are not
+        counted.
+
+        ``particles`` can be the sample of one marker, the particles of several
+        markers merged with :meth:`xtrack.Particles.merge`, possibly coming
+        from separate jobs, or the samples of each marker separately. The
+        per-marker rates are only available for the samples given separately,
+        or for the sample of a single marker selected with ``at``. The Monte
+        Carlo error of the loss rate is estimated from the spread between the
+        replicas of the markers given separately.
+
+        Parameters
+        ----------
+        particles : xtrack.Particles or dict
+            An ``xtrack.Particles`` object, or a mapping ``{name: particles}``
+            from marker names to the ``xtrack.Particles`` of the marker or a
+            list of its replicas.
+        at : str, sequence of str, or None, optional
+            Markers whose particles are given, when ``particles`` is not a
+            mapping. If ``None`` (default), all the markers of the line.
+
+        Returns
+        -------
+        result : RadiativeBhabhaResult
+            Rates and, with tracked particles, the loss rate and lifetime.
+        """
+        line = self.line
+
+        if particles is None:
+            raise ValueError("`particles` is required.")
+        samples = None
+        if isinstance(particles, dict):
+            if at is not None:
+                raise ValueError(
+                    "`at` cannot be given with a mapping of particles: its "
+                    "keys select the markers.")
+            names = self._markers(list(particles))
+            samples = {}
+            for nn in names:
+                replicas = particles[nn]
+                if not isinstance(replicas, (list, tuple)):
+                    replicas = [replicas]
+                if len(replicas) == 0:
+                    raise ValueError(f"No particles given for marker '{nn}'.")
+                samples[nn] = list(replicas)
+            all_particles = [pp for vv in samples.values() for pp in vv]
+        else:
+            names = self._markers(at)
+            all_particles = [particles]
+        for pp in all_particles:
+            if not isinstance(pp, xt.Particles):
+                raise TypeError(
+                    "The particles must be `xtrack.Particles` objects "
+                    f"(got {type(pp).__name__}).")
+
+        markers = {nn: line.element_dict[nn] for nn in names}
+        for nn, marker in markers.items():
+            _check_configured(nn, marker, line.particle_ref)
+        bunch_intensities = {float(mm.bunch_intensity)
+                             for mm in markers.values()}
+        if len(bunch_intensities) > 1:
+            raise ValueError(
+                "The markers are configured with different bunch "
+                f"intensities: {sorted(bunch_intensities)}.")
+        bunch_intensity = bunch_intensities.pop()
+
+        tab = line.get_table()
+        data = {
+            'name': np.array(names),
+            's': np.array([float(tab['s', nn]) for nn in names]),
+            'delta_cut': np.array([mm.delta_cut for mm in markers.values()]),
+        }
+
+        tracked = any(_tracked(pp) for pp in all_particles)
+        rate_tracking = None
+        rate_tracking_error = None
+
+        if samples is not None:
+            sums = {nn: [_sample_sums(pp) for pp in samples[nn]]
+                    for nn in names}
+
+            def per_marker(key):
+                return np.array([sum(ss[key] for ss in sums[nn])
+                                 for nn in names])
+
+            data['n_replicas'] = np.array([len(samples[nn]) for nn in names])
+            data['num_particles'] = per_marker('num_particles')
+            data['sum_weight'] = per_marker('sum_weight')
+            rate_generated = float(np.sum(data['sum_weight']))
+            if tracked:
+                data['num_lost_particles'] = per_marker('num_lost_particles')
+                data['sum_lost_weight'] = per_marker('sum_lost_weight')
+                variance = np.array([
+                    _replica_variance(
+                        [ss['sum_lost_weight'] for ss in sums[nn]])
+                    for nn in names])
+                data['sum_lost_weight_error'] = np.sqrt(variance)
+                rate_tracking = float(np.sum(data['sum_lost_weight']))
+                if np.any(np.isfinite(variance)):
+                    rate_tracking_error = float(np.sqrt(np.nansum(variance)))
+        else:
+            sums = _sample_sums(particles)
+            rate_generated = sums['sum_weight']
+            if tracked:
+                rate_tracking = sums['sum_lost_weight']
+            if len(names) == 1:
+                data['num_particles'] = np.array([sums['num_particles']])
+                data['sum_weight'] = np.array([sums['sum_weight']])
+                if tracked:
+                    data['num_lost_particles'] = np.array(
+                        [sums['num_lost_particles']])
+                    data['sum_lost_weight'] = np.array(
+                        [sums['sum_lost_weight']])
+
+        lifetime_tracking = None
+        lifetime_tracking_error = None
+        if rate_tracking is not None:
+            lifetime_tracking = (np.inf if rate_tracking == 0
+                                 else float(bunch_intensity / rate_tracking))
+            if rate_tracking_error is not None and rate_tracking > 0:
+                lifetime_tracking_error = float(
+                    lifetime_tracking * rate_tracking_error / rate_tracking)
+
+        return RadiativeBhabhaResult(
+            element_names=names,
+            local_rates=xt.Table(data),
+            rate_generated=rate_generated,
+            rate_tracking=rate_tracking,
+            lifetime_tracking=lifetime_tracking,
+            tracked=tracked,
+            rate_tracking_error=rate_tracking_error,
+            lifetime_tracking_error=lifetime_tracking_error,
+        )
 
     def _markers(self, at=None):
         """
